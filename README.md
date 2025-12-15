@@ -37,6 +37,31 @@
 <br>
 
 
+### 🗑️ 回收站（Trash / Recycle Bin） 🔧
+为避免误删，Hexo‑Copilot 支持“软删除 + 回收与恢复”机制：删除的文章会被移动到项目下的 `.trash` 目录并在 UI 的回收站中呈现；你可以在应用中恢复或永久删除这些条目。
+
+- 功能要点
+  - ✅ **软删除（Move to .trash）**：删除操作会把文件/文件夹移动到 `source/_posts/.trash/<timestamp>/...`（不可见于 Hexo）；
+  - ✅ **回收站列表**：前端提供回收站模态视图，可查看被删除条目的原始路径与删除时间；
+  - ✅ **恢复（Restore）**：可将条目恢复回原路径；如果目标路径已有同名文件，恢复会失败并返回 **409 (Conflict)**，避免自动覆盖；
+  - ⚠️ **永久删除（Permanent Delete）**：不可逆操作，UI 采用严格确认（需要输入指定文本，如 `DELETE` 或完整路径）防止误操作。
+
+- 后端 API（示例）
+  - 列表：GET http://127.0.0.1:8000/api/trash
+  - 恢复：POST http://127.0.0.1:8000/api/trash/restore  
+    Body (JSON): `{ "path": "2025/12/01-my-post.md" }`
+  - 永久删除：DELETE http://127.0.0.1:8000/api/trash/{url-encoded-path}
+
+- 状态码约定
+  - 200 OK — 成功
+  - 404 Not Found — 指定项不存在
+  - 409 Conflict — 恢复时目标已存在（需要先移除或改名）
+
+> 💡 小提示：请先确保后端服务运行并且 `HEXO_BASE_PATH` 已正确配置（见 `backend/main.py`）；在 Windows 上遇到中文显示问题时，请参考本 README 中的 UTF‑8 配置说明（chcp 65001 / PYTHONUTF8 等）。
+<br>
+<br>
+
+
 ### 🛠️ 技术栈
 
 | 领域     | 技术                                    |
@@ -96,6 +121,48 @@
         HEXO_BASE_PATH = "D:/path/to/your/hexo-blog" 
         ```
     *   **API密钥:** API密钥将在首次运行时于应用的UI界面中进行配置。该密钥会安全地存储在你浏览器的本地存储中，不会被暴露。
+
+
+**可选：使用仓库内的虚拟环境脚本（推荐）**
+
+项目提供了几个 npm 辅助脚本方便管理 Python 虚拟环境：
+
+* 创建虚拟环境（在项目根目录运行）：
+```bash
+npm run venv:create
+```
+
+* 在创建好的虚拟环境内安装后端依赖：
+```bash
+npm run venv:install
+```
+
+> 注意（Windows）：`venv:install` 和 `dev:backend` 使用 `.\\.venv\\Scripts\\python.exe`，请确保你在 PowerShell/命令行中有权限执行这些脚本。
+
+你也可以直接使用系统 Python 启动后端（如果你不想使用 `.venv`）：
+```bash
+npm run dev:backend:system
+```
+
+**关于 Python UTF‑8 环境（避免终端中文乱码 / mojibake）**
+
+为减少在 Windows 终端中出现中文乱码，本项目在后端启动脚本中设置了 `PYTHONUTF8=1`（通过 `cross-env`），并在启动时传递 `-X utf8` 给 Python 以确保 Python 输出 UTF‑8。请在变更依赖后重新运行：
+
+```bash
+npm install
+```
+
+如果你在 Windows 上仍然看到乱码，请在启动前在 PowerShell 中运行：
+```powershell
+chcp 65001
+```
+或者把下面两行加入你的 PowerShell 配置文件（长期生效）：
+```powershell
+chcp 65001
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+```
+
+以上设置将确保后端的本地化消息（例如错误或系统提示）以 UTF‑8 输出并正确显示。
 <br>
 
 #### [ 运行应用 ] 

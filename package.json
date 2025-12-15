@@ -4,9 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite", 
+    "dev": "vite",
     "dev:frontend": "vite",
-    "dev:backend": "cd backend && ../.venv/Scripts/uvicorn main:app --reload --port 8000",
+    "dev:backend": ".\\.venv\\Scripts\\python.exe -m uvicorn backend.main:app --reload --port 8000 --app-dir .",
+    "dev:backend:system": "python -m uvicorn backend.main:app --reload --port 8000 --app-dir .",
+    "venv:create": "python -m venv .venv",
+    "venv:install": ".\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt",
     "start": "concurrently \"npm:dev:backend\" \"npm:dev:frontend\"",
     "build": "vite build",
     "preview": "vite preview"

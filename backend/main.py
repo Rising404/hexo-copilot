@@ -1,47 +1,117 @@
+# backend/main.py
+
 import os
 import shutil
+import json
+import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Dict, Any, Optional
 
-# --- 配置 ---
-# !!! 重要：请将这里的路径修改为你自己电脑上Hexo博客的根目录 !!!
-HEXO_BASE_PATH = "D:/path/to/your/hexo-blog" # Windows示例
-# HEXO_BASE_PATH = "/Users/yourname/hexo-blog" # macOS/Linux示例
+# --- 1. 配置管理 (新增) ---
+# 定义配置文件的路径
+CONFIG_FILE = "config.json"
 
-POSTS_PATH = os.path.join(HEXO_BASE_PATH, "source", "_posts")
+def load_config() -> Dict[str, Any]:
+    """加载配置文件，如果不存在则创建一个默认的。"""
+    if not os.path.exists(CONFIG_FILE):
+        default_config = {
+            "hexo_path": None,
+            # 为下一步支持多模型做准备
+            "llm_provider": "gemini",
+            "providers": {
+                "gemini": {"api_key": None},
+                "openai": {"api_key": None}
+            }
+        }
+        save_config(default_config)
+        return default_config
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError):
+        # 如果文件损坏或为空，也返回一个默认配置
+        return {"hexo_path": None, "llm_provider": "gemini", "providers": {}}
 
+
+def save_config(config: Dict[str, Any]):
+    """将配置字典保存到JSON文件。"""
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+
+# --- 2. 动态路径初始化 (修改) ---
+# 应用启动时，从配置文件加载配置
+app_config = load_config()
+# 不再硬编码，而是从加载的配置中读取路径
+HEXO_BASE_PATH = app_config.get("hexo_path") 
+# 根据HEXO_BASE_PATH是否存在，来决定POSTS_PATH
+POSTS_PATH = os.path.join(HEXO_BASE_PATH, "source", "_posts") if HEXO_BASE_PATH and os.path.isdir(HEXO_BASE_PATH) else None
+
+
+# --- FastAPI 应用实例 (无变化) ---
 app = FastAPI()
-
-# --- CORS 中间件 ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], # 允许你的React前端访问
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Pydantic 模型 ---
+# --- 3. 新增Pydantic模型用于配置API (新增) ---
+class ProviderDetails(BaseModel):
+    api_key: Optional[str] = None
+
+class ConfigModel(BaseModel):
+    hexo_path: Optional[str] = None
+    llm_provider: str
+    providers: Dict[str, ProviderDetails]
+
+# --- Pydantic 模型 (无变化) ---
 class PostContent(BaseModel):
     content: str
-
 class NewPost(BaseModel):
     filename: str
-
 class NewFolder(BaseModel):
     path: str
 
-# --- 辅助函数 ---
+# --- 4. 新增配置API Endpoints (新增) ---
+@app.post("/api/config")
+async def update_config(config_data: ConfigModel):
+    """接收前端发来的配置，并保存到文件。"""
+    global app_config, HEXO_BASE_PATH, POSTS_PATH
+    
+    # 将接收到的Pydantic模型转换为字典
+    app_config = config_data.dict()
+    save_config(app_config)
+    
+    # 动态更新全局路径变量，以便文件操作API能立即使用新路径
+    new_hexo_path = app_config.get("hexo_path")
+    if new_hexo_path and os.path.isdir(new_hexo_path):
+        HEXO_BASE_PATH = new_hexo_path
+        POSTS_PATH = os.path.join(HEXO_BASE_PATH, "source", "_posts")
+        return {"status": "Configuration saved and path updated."}
+    else:
+        # 如果路径无效，则重置路径变量
+        HEXO_BASE_PATH = None
+        POSTS_PATH = None
+        # 即使路径无效，配置仍然会被保存，但会返回一个错误提示
+        raise HTTPException(status_code=400, detail=f"Invalid Hexo path provided: {new_hexo_path}")
+
+@app.get("/api/config", response_model=ConfigModel)
+async def get_config():
+    """让前端可以获取当前保存的配置。"""
+    return app_config
+
+# --- 辅助函数 (无变化) ---
 def get_all_md_files(root_dir):
     md_files = []
     for dirpath, _, filenames in os.walk(root_dir):
         for filename in filenames:
             if filename.endswith(".md"):
-                # 获取相对路径
                 relative_path = os.path.relpath(os.path.join(dirpath, filename), root_dir)
-                md_files.append(relative_path.replace("\\", "/")) # 统一使用 / 作为路径分隔符
+                md_files.append(relative_path.replace("\\", "/"))
     return md_files
 
 def get_all_folders(root_dir):
@@ -51,22 +121,28 @@ def get_all_folders(root_dir):
             relative_path = os.path.relpath(dirpath, root_dir)
             folders.append(relative_path.replace("\\", "/"))
     return folders
-    
-# --- API Endpoints ---
+
+# --- 5. 文件操作API Endpoints (逻辑微调) ---
+# 主要修改：在每个接口的开头都检查POSTS_PATH是否有效
 @app.get("/api/posts", response_model=List[str])
 async def list_posts():
-    if not os.path.exists(POSTS_PATH):
-        raise HTTPException(status_code=404, detail="Posts directory not found. Check HEXO_BASE_PATH.")
+    if not POSTS_PATH or not os.path.exists(POSTS_PATH):
+        raise HTTPException(status_code=404, detail="Posts directory not found. Please configure the Hexo path via the API.")
     return get_all_md_files(POSTS_PATH)
 
 @app.get("/api/folders", response_model=List[str])
 async def list_folders():
-    if not os.path.exists(POSTS_PATH):
-         raise HTTPException(status_code=404, detail="Posts directory not found.")
+    if not POSTS_PATH or not os.path.exists(POSTS_PATH):
+         raise HTTPException(status_code=404, detail="Posts directory not found. Please configure the Hexo path via the API.")
     return get_all_folders(POSTS_PATH)
+
+# ... (从这里开始，剩下的所有文件操作API的代码和你的原始文件完全一样) ...
+# ... 你只需把你的原始文件从 @app.get("/api/posts/{filename:path}") 到结尾的所有内容复制粘贴到这里即可 ...
+# ... 为确保完整性，我还是帮你把它们都列出来 ...
 
 @app.get("/api/posts/{filename:path}", response_model=str)
 async def get_post(filename: str):
+    if not POSTS_PATH: raise HTTPException(status_code=404, detail="Hexo path not configured.")
     filepath = os.path.join(POSTS_PATH, filename)
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found")
@@ -75,6 +151,7 @@ async def get_post(filename: str):
 
 @app.post("/api/posts/{filename:path}")
 async def save_post(filename: str, post: PostContent):
+    if not POSTS_PATH: raise HTTPException(status_code=404, detail="Hexo path not configured.")
     filepath = os.path.join(POSTS_PATH, filename)
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, "w", encoding="utf-8") as f:
@@ -83,6 +160,7 @@ async def save_post(filename: str, post: PostContent):
 
 @app.post("/api/posts/new")
 async def create_post(post: NewPost):
+    if not POSTS_PATH: raise HTTPException(status_code=404, detail="Hexo path not configured.")
     filepath = os.path.join(POSTS_PATH, post.filename)
     if os.path.exists(filepath):
         raise HTTPException(status_code=409, detail="File already exists")
@@ -93,24 +171,121 @@ async def create_post(post: NewPost):
 
 @app.post("/api/folders/new")
 async def create_folder(folder: NewFolder):
+    if not POSTS_PATH: raise HTTPException(status_code=404, detail="Hexo path not configured.")
     folderpath = os.path.join(POSTS_PATH, folder.path)
     if os.path.exists(folderpath):
         raise HTTPException(status_code=409, detail="Folder already exists")
     os.makedirs(folderpath)
     return {"status": "Folder created"}
     
+def ensure_trash_dir():
+    if not POSTS_PATH:
+        raise HTTPException(status_code=404, detail="Hexo path not configured.")
+    trash_root = os.path.join(POSTS_PATH, ".trash")
+    os.makedirs(trash_root, exist_ok=True)
+    return trash_root
+
+
+def move_to_trash_item(relative_path: str):
+    """Move a file or folder (relative to POSTS_PATH) into a timestamped folder under .trash and return the trash-relative path."""
+    trash_root = ensure_trash_dir()
+    timestamp = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+    src = os.path.join(POSTS_PATH, relative_path)
+    if not os.path.exists(src):
+        raise HTTPException(status_code=404, detail="Item not found")
+    dest = os.path.join(trash_root, timestamp, relative_path)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.move(src, dest)
+    return os.path.join(timestamp, relative_path).replace("\\", "/")
+
+
 @app.delete("/api/posts/{filename:path}")
 async def delete_post(filename: str):
-    filepath = os.path.join(POSTS_PATH, filename)
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="File not found")
-    os.remove(filepath)
-    return {"status": "File deleted"}
+    """Soft-delete (move to .trash)."""
+    if not POSTS_PATH:
+        raise HTTPException(status_code=404, detail="Hexo path not configured.")
+    # Move the file to trash
+    trash_path = move_to_trash_item(filename)
+    return {"status": "moved to trash", "trash_path": trash_path}
+
 
 @app.delete("/api/folders/{path:path}")
 async def delete_folder(path: str):
+    """Soft-delete folder (move to .trash)."""
+    if not POSTS_PATH:
+        raise HTTPException(status_code=404, detail="Hexo path not configured.")
     folderpath = os.path.join(POSTS_PATH, path)
     if not os.path.exists(folderpath):
         raise HTTPException(status_code=404, detail="Folder not found")
-    shutil.rmtree(folderpath)
-    return {"status": "Folder deleted"}
+    # Move the whole folder to trash preserving its relative path under a timestamped folder
+    trash_path = move_to_trash_item(path)
+    return {"status": "moved to trash", "trash_path": trash_path}
+
+
+@app.get("/api/trash", response_model=List[str])
+async def list_trash():
+    if not POSTS_PATH or not os.path.exists(POSTS_PATH):
+        raise HTTPException(status_code=404, detail="Posts directory not found. Please configure the Hexo path via the API.")
+    trash_root = os.path.join(POSTS_PATH, ".trash")
+    if not os.path.exists(trash_root):
+        return []
+    items: List[str] = []
+    for dirpath, dirnames, filenames in os.walk(trash_root):
+        for d in dirnames:
+            rel = os.path.relpath(os.path.join(dirpath, d), trash_root)
+            items.append(rel.replace("\\", "/") + "/")
+        for f in filenames:
+            rel = os.path.relpath(os.path.join(dirpath, f), trash_root)
+            items.append(rel.replace("\\", "/"))
+    items.sort()
+    return items
+
+
+class TrashItem(BaseModel):
+    path: str
+
+
+@app.post("/api/trash/restore")
+async def restore_trash(item: TrashItem):
+    if not POSTS_PATH:
+        raise HTTPException(status_code=404, detail="Hexo path not configured.")
+    trash_root = os.path.join(POSTS_PATH, ".trash")
+    src = os.path.join(trash_root, item.path)
+    if not os.path.exists(src):
+        raise HTTPException(status_code=404, detail="Trash item not found")
+
+    # Determine original relative path (strip first timestamp segment)
+    parts = item.path.split('/', 1)
+    if len(parts) == 1:
+        rel = parts[0]
+    else:
+        rel = parts[1]
+
+    dest = os.path.join(POSTS_PATH, rel)
+    if os.path.exists(dest):
+        raise HTTPException(status_code=409, detail="Target already exists")
+
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.move(src, dest)
+
+    # Cleanup empty timestamp folder if it's empty now
+    parent_ts = os.path.join(trash_root, parts[0])
+    if os.path.isdir(parent_ts) and not any(os.scandir(parent_ts)):
+        os.rmdir(parent_ts)
+
+    return {"status": "restored", "path": rel}
+
+
+@app.delete("/api/trash/{path:path}")
+async def delete_trash(path: str):
+    if not POSTS_PATH:
+        raise HTTPException(status_code=404, detail="Hexo path not configured.")
+    trash_root = os.path.join(POSTS_PATH, ".trash")
+    target = os.path.join(trash_root, path)
+    if not os.path.exists(target):
+        raise HTTPException(status_code=404, detail="Trash item not found")
+    if os.path.isdir(target):
+        shutil.rmtree(target)
+    else:
+        os.remove(target)
+    return {"status": "deleted"}

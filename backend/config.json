@@ -1,0 +1,12 @@
+{
+  "hexo_path": null,
+  "llm_provider": "gemini",
+  "providers": {
+    "gemini": {
+      "api_key": null
+    },
+    "openai": {
+      "api_key": null
+    }
+  }
+}

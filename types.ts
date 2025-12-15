@@ -22,5 +22,9 @@ export interface FileService {
   createFolder: (path: string) => Promise<void>;
   deletePost: (filename: string) => Promise<void>;
   deleteFolder: (path: string) => Promise<void>;
+  // Trash management
+  listTrash?: () => Promise<string[]>;
+  restoreTrash?: (path: string) => Promise<void>;
+  permanentDelete?: (path: string) => Promise<void>;
   setHexoPath: (path: string) => Promise<void>;
 }

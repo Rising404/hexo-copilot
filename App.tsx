@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-// import { mockFileService } from './services/mockFileService'; ÓÃÓÚÄ£Äâ
-import { realFileService } from './services/realFileService'; // µ¼ÈëÎÒÃÇµÄĞÂ·şÎñ
+// import { mockFileService } from './services/mockFileService'; // Using realFileService instead for real filesystem operations
+import { realFileService, AppConfig } from './services/realFileService';
 import { createChatSession, sendMessageToGemini } from './services/geminiService';
 import { ChatMessage, Role } from './types';
 import { Chat } from "@google/genai";
@@ -10,6 +10,8 @@ import {
   EditIcon, SplitIcon, SidebarIcon, GripHorizontalIcon, FolderIcon, FolderOpenIcon, 
   TrashIcon, FilePlusIcon, FolderPlusIcon 
 } from './components/Icon';
+import ConfirmModal from './components/ConfirmModal';
+import TrashView from './components/TrashView';
 
 // --- Types for File Tree ---
 interface FileNode {
@@ -197,9 +199,9 @@ export default function App() {
   const [currentFilename, setCurrentFilename] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState<string>("");
   const [isLoadingFile, setIsLoadingFile] = useState(false);
-  
-  const [hexoPath, setHexoPath] = useState<string>("");
-  const [apiKey, setApiKey] = useState<string>("");
+
+  // --- æ–°çš„çŠ¶æ€ç®¡ç† ---
+  const [config, setConfig] = useState<AppConfig | null>(null); // åˆå§‹ä¸ºnullï¼Œè¡¨ç¤ºæ­£åœ¨åŠ è½½
   const [isPathSet, setIsPathSet] = useState(false);
   
   // View Modes: 'edit' | 'split'
@@ -219,24 +221,30 @@ export default function App() {
 
   // --- Initialization ---
   useEffect(() => {
-    const savedPath = localStorage.getItem("hexo-path");
-    const savedKey = localStorage.getItem("hexo-api-key");
-    
-    if (savedPath) {
-      setHexoPath(savedPath);
-      if (savedKey) setApiKey(savedKey);
-      setIsPathSet(true);
-      refreshFileSystem();
-    }
-    
-    if (savedKey) {
-      try {
-        chatSessionRef.current = createChatSession(savedKey);
-      } catch (e) {
-        console.error("Failed to init chat", e);
+  const loadInitialConfig = async () => {
+    try {
+      const savedConfig = await realFileService.getConfig();
+      setConfig(savedConfig);
+      
+      // æ£€æŸ¥åŠ è½½çš„è·¯å¾„æ˜¯å¦æœ‰æ•ˆ
+      if (savedConfig.hexo_path) {
+        setIsPathSet(true);
+        // ä½¿ç”¨åŠ è½½çš„apiKeyåˆå§‹åŒ–èŠå¤©
+        const apiKey = savedConfig.providers[savedConfig.llm_provider]?.api_key;
+        if (apiKey) {
+          chatSessionRef.current = createChatSession(apiKey);
+        }
+        // ç«‹å³åˆ·æ–°æ–‡ä»¶ç³»ç»Ÿ
+        refreshFileSystem();
       }
+    } catch (error) {
+      console.error("Failed to load initial config from backend.", error);
+      alert("Could not connect to backend to load configuration.");
     }
-  }, []);
+  };
+
+  loadInitialConfig();
+}, []); // è¿™ä¸ªeffectåªåœ¨ç»„ä»¶é¦–æ¬¡åŠ è½½æ—¶è¿è¡Œä¸€æ¬¡
 
   // --- Resize Handlers ---
   const handleResizeStart = (e: React.MouseEvent, type: 'left' | 'right' | 'split' | 'draft') => {
@@ -280,8 +288,8 @@ export default function App() {
   const refreshFileSystem = async () => {
     try {
       const [files, folders] = await Promise.all([
-        mockFileService.getFiles(),
-        mockFileService.getFolders()
+        realFileService.getFiles(),
+        realFileService.getFolders()
       ]);
       setFileList(files);
       setFolderList(folders);
@@ -291,22 +299,33 @@ export default function App() {
     }
   };
 
-  const handleSetup = async () => {
-    await mockFileService.setHexoPath(hexoPath);
-    localStorage.setItem("hexo-api-key", apiKey);
-    
-    if (apiKey) {
-      chatSessionRef.current = createChatSession(apiKey);
-    }
+// App.tsx - æ›¿æ¢æ‰æ—§çš„ handleSetup
 
-    setIsPathSet(true);
-    refreshFileSystem();
+  const handleSetup = async () => {
+    if (!config) return; // å¦‚æœé…ç½®è¿˜æœªåŠ è½½ï¼Œåˆ™ä¸æ‰§è¡Œä»»ä½•æ“ä½œ
+
+    try {
+      await realFileService.saveConfig(config);
+      setIsPathSet(true);
+    
+      // ä½¿ç”¨æ–°çš„apiKeyé‡æ–°åˆå§‹åŒ–èŠå¤©
+      const apiKey = config.providers[config.llm_provider]?.api_key;
+      if (apiKey) {
+         chatSessionRef.current = createChatSession(apiKey);
+      }
+
+      refreshFileSystem();
+    } catch (error: any) {
+      const detail = error.response?.data?.detail || "Is the backend running?";
+      alert(`Failed to save configuration: ${detail}`);
+      console.error(error);
+    }
   };
 
   const handleFileClick = async (filename: string) => {
     setIsLoadingFile(true);
     try {
-      const content = await mockFileService.getPostContent(filename);
+      const content = await realFileService.getPostContent(filename);
       setCurrentFilename(filename);
       setEditorContent(content);
     } catch (e) {
@@ -317,70 +336,84 @@ export default function App() {
   };
 
   const handleCreateFile = async () => {
-      const filename = window.prompt("Enter new file path (e.g. folder/new-post.md):");
-      // Èç¹ûÓÃ»§µã»÷È¡Ïû»òÊäÈëÎª¿Õ£¬ÔòÖ±½Ó·µ»Ø
-      if (!filename || filename.trim() === '') return;
+    const filename = window.prompt("Enter new file path (e.g. folder/new-post.md):");
+    // å¦‚æœç”¨æˆ·æœªæä¾›è·¯å¾„åˆ™ç›´æ¥è¿”å›
+    if (!filename || filename.trim() === '') return;
 
-      try {
-          await mockFileService.createPost(filename);
-          // ²Ù×÷³É¹¦ºó£¬Á¢¼´Ë¢ĞÂÎÄ¼şÏµÍ³
-          await refreshFileSystem();
-          // ×Ô¶¯Ñ¡ÖĞ²¢´ò¿ªĞÂÎÄ¼ş
-          await handleFileClick(filename);
-      } catch (e: any) {
-          // Ìá¹©¸üÃ÷È·µÄ´íÎóÌáÊ¾
-          alert(`Failed to create file: ${e.message}`);
-          console.error(e);
-      }
+    try {
+      await realFileService.createPost(filename);
+      // åˆ›å»ºæˆåŠŸååˆ·æ–°æ–‡ä»¶ç³»ç»Ÿ
+      await refreshFileSystem();
+      // è‡ªåŠ¨é€‰ä¸­å¹¶æ‰“å¼€æ–°åˆ›å»ºçš„æ–‡ä»¶
+      await handleFileClick(filename);
+    } catch (e: any) {
+      // æä¾›æ¸…æ™°çš„é”™è¯¯æç¤º
+      alert(`Failed to create file: ${e.message}`);
+      console.error(e);
+    }
   };
 
   const handleCreateFolder = async () => {
-      const folderPath = window.prompt("Enter new folder path (e.g. my-folder or nested/folder):");
-      // Èç¹ûÓÃ»§µã»÷È¡Ïû»òÊäÈëÎª¿Õ£¬ÔòÖ±½Ó·µ»Ø
-      if (!folderPath || folderPath.trim() === '') return;
+    const folderPath = window.prompt("Enter new folder path (e.g. my-folder or nested/folder):");
+    // å¦‚æœç”¨æˆ·æœªæä¾›è·¯å¾„åˆ™ç›´æ¥è¿”å›
+    if (!folderPath || folderPath.trim() === '') return;
 
-      try {
-          await mockFileService.createFolder(folderPath);
-          // ²Ù×÷³É¹¦ºó£¬Á¢¼´Ë¢ĞÂÎÄ¼şÏµÍ³
-          await refreshFileSystem();
-      } catch (e: any) {
-          // Ìá¹©¸üÃ÷È·µÄ´íÎóÌáÊ¾
-          alert(`Failed to create folder: ${e.message}`);
-          console.error(e);
-      }
+    try {
+      await realFileService.createFolder(folderPath);
+      // åˆ›å»ºæˆåŠŸååˆ·æ–°æ–‡ä»¶ç³»ç»Ÿ
+      await refreshFileSystem();
+    } catch (e: any) {
+      // æä¾›æ¸…æ™°çš„é”™è¯¯æç¤º
+      alert(`Failed to create folder: ${e.message}`);
+      console.error(e);
+    }
   };
 
+  // Pending delete: shows confirmation modal first
+  const [pendingDelete, setPendingDelete] = useState<FileNode | null>(null);
+  const [strictDeleteMode, setStrictDeleteMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('safe.strictDelete') === '1';
+    } catch { return false; }
+  });
+
+  // Trash Modal state
+  const [showTrash, setShowTrash] = useState(false);
+
   const handleDelete = async (node: FileNode) => {
-      const typeLabel = node.type === 'folder' ? 'Folder' : 'File';
-      const warning = node.type === 'folder' ? "\nWARNING: This will delete all content inside it!" : "";
+    // Open confirmation modal; actual delete happens in performDelete
+    setPendingDelete(node);
+  };
 
-      if (window.confirm(`Are you sure you want to delete this ${typeLabel}?\nPath: ${node.path}${warning}`)) {
-          try {
-              if (node.type === 'folder') {
-                  await mockFileService.deleteFolder(node.path);
-              } else {
-                  await mockFileService.deletePost(node.path);
-              }
-
-              // ¼ì²éµ±Ç°´ò¿ªµÄÎÄ¼şÊÇ·ñÊÇ±»É¾³ıµÄÎÄ¼ş»òÔÚ±»É¾³ıµÄÎÄ¼ş¼ĞÄÚ
-              if (currentFilename && (currentFilename === node.path || currentFilename.startsWith(node.path + '/'))) {
-                  setCurrentFilename(null);
-                  setEditorContent("");
-              }
-
-              // ×î¹Ø¼üµÄÒ»²½£ºÔÚËùÓĞ²Ù×÷Íê³Éºó£¬Í³Ò»Ë¢ĞÂÎÄ¼şÏµÍ³ÒÔ¸üĞÂUI
-              await refreshFileSystem();
-
-          } catch (e: any) {
-              alert(`Failed to delete ${typeLabel}: ${e.message}`);
-              console.error(e);
-          }
+  const performDelete = async (node: FileNode) => {
+    const typeLabel = node.type === 'folder' ? 'Folder' : 'File';
+    try {
+      if (node.type === 'folder') {
+        await realFileService.deleteFolder(node.path);
+      } else {
+        await realFileService.deletePost(node.path);
       }
+
+      // å¦‚æœå½“å‰æ‰“å¼€çš„æ–‡ä»¶è¢«åˆ é™¤ï¼Œæˆ–ä½äºè¢«åˆ é™¤çš„æ–‡ä»¶å¤¹å†…ï¼Œåˆ™å…³é—­ç¼–è¾‘å™¨å¹¶æ¸…ç©ºå†…å®¹
+      if (currentFilename && (currentFilename === node.path || currentFilename.startsWith(node.path + '/'))) {
+        setCurrentFilename(null);
+        setEditorContent("");
+      }
+
+      // åˆ·æ–°æ–‡ä»¶ç³»ç»Ÿå¹¶æ›´æ–° UI
+      await refreshFileSystem();
+
+    } catch (e: any) {
+      alert(`Failed to delete ${typeLabel}: ${e.message}`);
+      console.error(e);
+    } finally {
+      setPendingDelete(null);
+    }
   };
 
   const handleSaveFile = async () => {
     if (currentFilename) {
-      await mockFileService.savePostContent(currentFilename, editorContent);
+      await realFileService.savePostContent(currentFilename, editorContent);
       alert(`Saved ${currentFilename}`);
     }
   };
@@ -389,7 +422,8 @@ export default function App() {
   const handleSendMessage = async () => {
     if (!chatInput.trim()) return;
     
-    if (!chatSessionRef.current) {
+      if (!chatSessionRef.current) {
+      const apiKey = config?.providers[config.llm_provider]?.api_key;
       if (apiKey) {
         chatSessionRef.current = createChatSession(apiKey);
       } else {
@@ -417,6 +451,7 @@ export default function App() {
   };
 
   const handleNewTopic = () => {
+    const apiKey = config?.providers[config.llm_provider]?.api_key;
     if (apiKey) {
       chatSessionRef.current = createChatSession(apiKey);
       setChatHistory([]);
@@ -450,39 +485,69 @@ export default function App() {
 
   // --- View: Path Setup ---
   if (!isPathSet) {
+    // æ·»åŠ ä¸€ä¸ªåŠ è½½çŠ¶æ€ï¼Œé˜²æ­¢åœ¨é…ç½®åŠ è½½å®Œæˆå‰æ˜¾ç¤ºé¡µé¢
+    if (!config) {
+      return <div className="flex h-screen items-center justify-center bg-gray-900 text-white">Loading configuration...</div>;
+    }
+
     return (
       <div className="flex h-screen items-center justify-center bg-gray-900 text-white">
-        <div className="w-full max-w-md p-8 bg-gray-800 rounded-lg shadow-lg border border-gray-700">
+        <div className="w-full max-w-lg p-8 bg-gray-800 rounded-lg shadow-lg border border-gray-700">
           <h1 className="text-2xl font-bold mb-6 text-blue-400">Hexo Copilot Setup</h1>
           <div className="space-y-4">
+            {/* Hexo Path Input */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-gray-300">Hexo Blog Path (Local)</label>
+              <label className="block text-sm font-medium mb-2 text-gray-300">Hexo Blog Path (Absolute)</label>
               <input 
                 type="text" 
-                value={hexoPath} 
-                onChange={(e) => setHexoPath(e.target.value)}
-                className="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-blue-500 outline-none text-white placeholder-gray-500"
-                placeholder="/path/to/blog"
+                value={config.hexo_path || ""} 
+                onChange={(e) => setConfig(prev => ({...prev!, hexo_path: e.target.value}))}
+                className="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-blue-500 outline-none"
+                placeholder="e.g., D:/Blog/my-hexo-site"
               />
             </div>
+
+            {/* LLM Provider Selector */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-gray-300">Gemini API Key</label>
+              <label className="block text-sm font-medium mb-2 text-gray-300">AI Provider</label>
+              <select 
+                value={config.llm_provider}
+                onChange={(e) => setConfig(prev => ({...prev!, llm_provider: e.target.value as 'gemini' | 'openai'}))}
+                className="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-blue-500 outline-none"
+              >
+                <option value="gemini">Google Gemini</option>
+                <option value="openai">OpenAI (or compatible)</option>
+              </select>
+            </div>
+          
+           {/* API Key Input */}
+            <div>
+              <label className="block text-sm font-medium mb-2 text-gray-300">
+                {config.llm_provider === 'gemini' ? 'Gemini API Key' : 'OpenAI API Key'}
+              </label>
               <input 
                 type="password" 
-                value={apiKey} 
-                onChange={(e) => setApiKey(e.target.value)}
-                className="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-blue-500 outline-none text-white placeholder-gray-500"
-                placeholder="AIzaSy..."
+                value={config.providers[config.llm_provider]?.api_key || ""}
+                onChange={(e) => {
+                    const newKey = e.target.value;
+                    setConfig(prev => ({
+                        ...prev!,
+                        providers: {
+                            ...prev!.providers,
+                            [prev!.llm_provider]: { api_key: newKey }
+                        }
+                    }));
+                }}
+                className="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-blue-500 outline-none"
+                placeholder="Enter your API Key"
               />
-              <p className="text-xs text-gray-500 mt-1">
-                Your API key is stored locally in your browser.
-              </p>
             </div>
+
             <button 
               onClick={handleSetup} 
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded transition-colors mt-2"
             >
-              Start Copilot
+              Save and Start Copilot
             </button>
           </div>
         </div>
@@ -514,6 +579,9 @@ export default function App() {
               <button onClick={refreshFileSystem} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors" title="Refresh">
                 <RefreshIcon />
               </button>
+              <button onClick={() => setShowTrash(true)} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors" title="Trash">
+                <TrashIcon />
+              </button>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
@@ -526,6 +594,20 @@ export default function App() {
                 onDelete={handleDelete}
                />
              ))}
+
+             {/* Confirmation modal for destructive actions */}
+             <ConfirmModal
+               open={!!pendingDelete}
+               title="Confirm Deletion"
+               message={pendingDelete ? `Are you sure you want to delete '${pendingDelete.name}' (${pendingDelete.type})?` : undefined}
+               strictLabel={strictDeleteMode && pendingDelete ? pendingDelete.name : undefined}
+               confirmText="Delete"
+               cancelText="Cancel"
+               onCancel={() => setPendingDelete(null)}
+               onConfirm={() => pendingDelete && performDelete(pendingDelete)}
+             />
+
+             <TrashView open={showTrash} onClose={() => setShowTrash(false)} onChanged={() => { refreshFileSystem(); }} />
              {fileList.length === 0 && folderList.length === 0 && <div className="text-center text-gray-500 text-sm mt-10">Empty directory</div>}
           </div>
           <div className="p-3 border-t border-gray-800 text-xs text-gray-600 text-center">
