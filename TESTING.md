@@ -22,7 +22,8 @@ The tests use a temporary directory and patch `HEXO_BASE_PATH` / `POSTS_PATH` so
 1. Start the backend and frontend (ensure `backend/main.py` `HEXO_BASE_PATH` is configured to a test directory or your Hexo folder).
 2. Create some sample posts under `source/_posts/` (e.g., `2025-12-01-sample.md`, `category/2025-12-02-sample.md`).
 3. In the UI open Trash and use the file browser to delete the sample posts. They should show up in the Trash modal.
-4. Test single restore: Restore one item and assert that it reappears in the file tree and is removed from Trash.
+
+**Workspace & Posts Folder:** If you point the app to a folder that does not contain `source/_posts`, the app will accept that folder as a workspace. You can either use it directly (the app will show `.md`/`.txt` files under that root), or click **Create posts folder** in the setup screen to create `source/_posts` automatically.4. Test single restore: Restore one item and assert that it reappears in the file tree and is removed from Trash.
 5. Test restore conflict: Create a file at the target location with the same name and try restore — the operation should fail with a 409 Conflict.
 6. Test batch restore: Select multiple items across folders, click `Restore Selected`. The UI should show a progress bar, per-item statuses, and refresh on success.
 7. Test partial failure & retry: Simulate one item failing to restore (conflict) and verify the failed item's status is shown as Failed; then retry the restore and verify it succeeds.

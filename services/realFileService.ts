@@ -44,8 +44,9 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
    * 将新的配置对象发送到后端进行保存
    * @param config - 完整的配置对象
    */
-  saveConfig: async (config: AppConfig): Promise<void> => {
-    await apiClient.post('/api/config', config);
+  saveConfig: async (config: AppConfig): Promise<any> => {
+    const resp = await apiClient.post('/api/config', config);
+    return resp.data;
   },
 
   // --- 文件操作 (与之前相同) ---
@@ -83,7 +84,14 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
   },
 
   createPost: async (filename: string): Promise<void> => {
-    await apiClient.post('/api/posts/new', { filename });
+    // Basic client-side validation and normalization to reduce backend 422s
+    const name = filename?.toString().trim();
+    if (!name) throw new Error('Filename is empty');
+    // Normalize Windows backslashes to forward slashes
+    const normalized = name.replace(/\\/g, '/');
+    // Ensure extension
+    const finalName = normalized.endsWith('.md') ? normalized : `${normalized}.md`;
+    await apiClient.post('/api/posts/new', { filename: finalName });
   },
 
   createFolder: async (path: string): Promise<void> => {
@@ -115,6 +123,11 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
 
   permanentDelete: async (path: string): Promise<void> => {
     await apiClient.delete(`/api/trash/${encodeURIComponent(path)}`);
+  },
+
+  initPostsFolder: async (): Promise<any> => {
+    const resp = await apiClient.post('/api/posts/init');
+    return resp.data;
   },
 
   /**

@@ -12,6 +12,7 @@ import {
 } from './components/Icon';
 import ConfirmModal from './components/ConfirmModal';
 import TrashView from './components/TrashView';
+import QuickSettings from './components/QuickSettings';
 
 // --- Types for File Tree ---
 interface FileNode {
@@ -203,6 +204,9 @@ export default function App() {
   // --- 新的状态管理 ---
   const [config, setConfig] = useState<AppConfig | null>(null); // 初始为null，表示正在加载
   const [isPathSet, setIsPathSet] = useState(false);
+  const [postsDetected, setPostsDetected] = useState<boolean | null>(null);
+  const [postsPath, setPostsPath] = useState<string | null>(null);
+  const [showQuickSettings, setShowQuickSettings] = useState(false);
   
   // View Modes: 'edit' | 'split'
   const [viewMode, setViewMode] = useState<'edit' | 'split'>('edit');
@@ -234,8 +238,14 @@ export default function App() {
         if (apiKey) {
           chatSessionRef.current = createChatSession(apiKey);
         }
-        // 立即刷新文件系统
-        refreshFileSystem();
+        // 尝试刷新文件系统以判断是否探测到 posts
+        const ok = await refreshFileSystem();
+        if (ok) {
+          setPostsDetected(true);
+        } else {
+          setPostsDetected(false);
+          setPostsPath(savedConfig.hexo_path || null);
+        }
       }
     } catch (error) {
       console.error("Failed to load initial config from backend.", error);
@@ -294,8 +304,14 @@ export default function App() {
       setFileList(files);
       setFolderList(folders);
       setFileTree(buildFileTree(files, folders));
+      return true;
     } catch (e) {
       console.error("Failed to refresh file system", e);
+      // ensure UI stays responsive
+      setFileList([]);
+      setFolderList([]);
+      setFileTree([]);
+      return false;
     }
   };
 
@@ -305,21 +321,45 @@ export default function App() {
     if (!config) return; // 如果配置还未加载，则不执行任何操作
 
     try {
-      await realFileService.saveConfig(config);
+      const resp = await realFileService.saveConfig(config);
       setIsPathSet(true);
-    
+      setPostsDetected(!!resp?.is_hexo);
+      setPostsPath(resp?.posts_path || config.hexo_path || null);
+
       // 使用新的apiKey重新初始化聊天
       const apiKey = config.providers[config.llm_provider]?.api_key;
       if (apiKey) {
          chatSessionRef.current = createChatSession(apiKey);
       }
 
-      refreshFileSystem();
+      // 尝试刷新文件系统（始终尝试，以便显示 workspace 内容），但不让错误阻塞 UI
+      const ok = await refreshFileSystem();
+      if (!ok) setPostsDetected(false);
     } catch (error: any) {
       const detail = error.response?.data?.detail || "Is the backend running?";
       alert(`Failed to save configuration: ${detail}`);
       console.error(error);
     }
+  };
+
+  const handleCreatePostsFolder = async () => {
+    try {
+      const resp = await realFileService.initPostsFolder();
+      setPostsDetected(true);
+      setPostsPath(resp.posts_path || postsPath);
+      // now that posts folder exists, refresh
+      await refreshFileSystem();
+    } catch (e: any) {
+      alert(`Failed to create posts folder: ${e?.message || e}`);
+    }
+  };
+
+  const handleQuickSettingsSaved = async (resp: any) => {
+    setIsPathSet(true);
+    setPostsDetected(!!resp?.is_hexo);
+    setPostsPath(resp?.posts_path || config?.hexo_path || null);
+    const ok = await refreshFileSystem();
+    if (!ok) setPostsDetected(false);
   };
 
   const handleFileClick = async (filename: string) => {
@@ -344,11 +384,22 @@ export default function App() {
       await realFileService.createPost(filename);
       // 创建成功后刷新文件系统
       await refreshFileSystem();
-      // 自动选中并打开新创建的文件
-      await handleFileClick(filename);
+      // 自动选中并打开新创建的文件 (normalize same as service)
+      const normalized = filename.trim().replace(/\\/g, '/');
+      const finalName = normalized.endsWith('.md') ? normalized : `${normalized}.md`;
+      await handleFileClick(finalName);
     } catch (e: any) {
-      // 提供清晰的错误提示
-      alert(`Failed to create file: ${e.message}`);
+      // Normalize different error shapes into readable text
+      let detail: string;
+      if (e?.response?.data) {
+        detail = typeof e.response.data === 'string' ? e.response.data : JSON.stringify(e.response.data);
+      } else if (e?.message) {
+        detail = e.message;
+      } else {
+        try { detail = JSON.stringify(e); } catch { detail = String(e); }
+      }
+      // 提供清晰的错误提示（显示后端返回的 detail 以帮助诊断 422）
+      alert(`Failed to create file: ${detail}`);
       console.error(e);
     }
   };
@@ -549,6 +600,15 @@ export default function App() {
             >
               Save and Start Copilot
             </button>
+            {postsDetected === false && (
+              <div className="mt-3 p-3 bg-yellow-800 rounded">
+                <div className="text-sm">No Hexo `source/_posts` folder detected under the specified path.</div>
+                <div className="text-sm mt-2">You can either create it now or continue using the selected folder as a workspace (all `.md`/`.txt` files will be shown).</div>
+                <div className="flex gap-2 mt-2">
+                  <button onClick={handleCreatePostsFolder} className="px-3 py-1 bg-green-600 rounded text-sm">Create posts folder</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -722,12 +782,21 @@ export default function App() {
         {/* Header */}
         <div className="h-14 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900 flex-shrink-0">
           <span className="font-semibold text-gray-200">AI Assistant</span>
-          <button 
-            onClick={handleNewTopic}
-            className="text-xs flex items-center gap-1 text-gray-400 hover:text-white px-2 py-1 hover:bg-gray-800 rounded transition-colors"
-          >
-            <PlusIcon /> New Chat
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleNewTopic}
+              className="text-xs flex items-center gap-1 text-gray-400 hover:text-white px-2 py-1 hover:bg-gray-800 rounded transition-colors"
+            >
+              <PlusIcon /> New Chat
+            </button>
+
+            <button 
+              onClick={() => setShowQuickSettings(true)}
+              className="text-xs flex items-center gap-1 text-gray-400 hover:text-white px-2 py-1 hover:bg-gray-800 rounded transition-colors"
+            >
+              <SidebarIcon /> Settings
+            </button>
+          </div>
         </div>
 
         {/* Chat History */}
@@ -822,6 +891,14 @@ export default function App() {
         </div>
 
       </div>
+    {showQuickSettings && (
+      <QuickSettings
+        open={showQuickSettings}
+        onClose={() => setShowQuickSettings(false)}
+        config={config}
+        onSaved={(resp) => { setShowQuickSettings(false); handleQuickSettingsSaved(resp); }}
+      />
+    )}
     </div>
   );
 }
