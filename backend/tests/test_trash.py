@@ -113,3 +113,41 @@ def test_concurrent_restore(tmp_posts):
     # one should succeed (200), the other should fail (404 or 409 depending on timing)
     assert set(results) & {200}
     assert any(s in (404, 409, 200) for s in results)
+
+
+def test_config_root_and_init(tmp_path, monkeypatch):
+    # create a base directory without source/_posts
+    base = tmp_path / "workspace"
+    base.mkdir(parents=True)
+    # Ensure it's empty
+    monkeypatch.setattr(main, "HEXO_BASE_PATH", None)
+    monkeypatch.setattr(main, "POSTS_PATH", None)
+
+    # POST config with this base
+    resp = client.post("/api/config", json={"hexo_path": str(base), "llm_provider": "gemini", "providers": {"gemini": {"api_key": None}, "openai": {"api_key": None}}})
+    # Should accept config and report posts folder not detected
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body.get("is_hexo") is False
+
+    # Posts path should be set to the root
+    resp2 = client.get("/api/posts")
+    # no files yet but endpoint should not return 404
+    assert resp2.status_code == 200
+
+    # Now call init to create source/_posts
+    resp3 = client.post("/api/posts/init")
+    assert resp3.status_code == 200
+    assert resp3.json().get("status") == "created"
+
+    # Now the posts listing should still be valid
+    resp4 = client.get("/api/posts")
+    assert resp4.status_code == 200
+
+
+def test_config_invalid_path(tmp_path):
+    # POST config with a non-existent path
+    bad = str(tmp_path / "does_not_exist")
+    resp = client.post("/api/config", json={"hexo_path": bad, "llm_provider": "gemini", "providers": {"gemini": {"api_key": None}, "openai": {"api_key": None}}})
+    assert resp.status_code == 400
+    assert "Invalid path" in resp.json().get("detail", "")

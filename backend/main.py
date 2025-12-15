@@ -87,17 +87,24 @@ async def update_config(config_data: ConfigModel):
     save_config(app_config)
     
     # 动态更新全局路径变量，以便文件操作API能立即使用新路径
-    new_hexo_path = app_config.get("hexo_path")
-    if new_hexo_path and os.path.isdir(new_hexo_path):
-        HEXO_BASE_PATH = new_hexo_path
-        POSTS_PATH = os.path.join(HEXO_BASE_PATH, "source", "_posts")
-        return {"status": "Configuration saved and path updated."}
-    else:
-        # 如果路径无效，则重置路径变量
+    new_path = app_config.get("hexo_path")
+    if not new_path or not os.path.exists(new_path):
+        # 保存配置但提示路径不存在
         HEXO_BASE_PATH = None
         POSTS_PATH = None
-        # 即使路径无效，配置仍然会被保存，但会返回一个错误提示
-        raise HTTPException(status_code=400, detail=f"Invalid Hexo path provided: {new_hexo_path}")
+        raise HTTPException(status_code=400, detail=f"Invalid path provided: {new_path}")
+
+    # Path exists; accept it as a workspace root
+    HEXO_BASE_PATH = new_path
+
+    # If it contains a Hexo-style posts folder, prefer that; otherwise use root as posts root
+    candidate = os.path.join(HEXO_BASE_PATH, "source", "_posts")
+    if os.path.isdir(candidate):
+        POSTS_PATH = candidate
+        return {"status": "Configuration saved and posts path detected.", "posts_path": POSTS_PATH, "is_hexo": True}
+    else:
+        POSTS_PATH = HEXO_BASE_PATH
+        return {"status": "Configuration saved; posts folder not detected.", "posts_path": POSTS_PATH, "is_hexo": False}
 
 @app.get("/api/config", response_model=ConfigModel)
 async def get_config():
@@ -160,14 +167,31 @@ async def save_post(filename: str, post: PostContent):
 
 @app.post("/api/posts/new")
 async def create_post(post: NewPost):
-    if not POSTS_PATH: raise HTTPException(status_code=404, detail="Hexo path not configured.")
-    filepath = os.path.join(POSTS_PATH, post.filename)
+    if not POSTS_PATH:
+        raise HTTPException(status_code=404, detail="Posts directory not configured.")
+
+    # Basic validation: non-empty filename
+    if not post.filename or not post.filename.strip():
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    # Prevent path traversal: ensure resulting absolute path is inside POSTS_PATH
+    root = os.path.abspath(POSTS_PATH)
+    target = os.path.abspath(os.path.join(POSTS_PATH, post.filename))
+    if not (target == root or target.startswith(root + os.sep)):
+        raise HTTPException(status_code=400, detail="Invalid filename or path traversal detected")
+
+    filepath = target
     if os.path.exists(filepath):
         raise HTTPException(status_code=409, detail="File already exists")
-    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    # Ensure parent folder exists (handle root file case gracefully)
+    parent_dir = os.path.dirname(filepath)
+    if parent_dir:
+        os.makedirs(parent_dir, exist_ok=True)
+
     with open(filepath, "w", encoding="utf-8") as f:
-        f.write("---\ntitle: New Post\ndate: {}\n---\n\n".format("2025-01-01 00:00:00"))
-    return {"status": "File created"}
+        f.write("---\ntitle: New Post\ndate: {}\n---\n\n".format(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')))
+    return {"status": "File created", "path": os.path.relpath(filepath, POSTS_PATH).replace('\\\\', '/') }
 
 @app.post("/api/folders/new")
 async def create_folder(folder: NewFolder):
@@ -289,3 +313,16 @@ async def delete_trash(path: str):
     else:
         os.remove(target)
     return {"status": "deleted"}
+
+
+@app.post("/api/posts/init")
+async def init_posts_folder():
+    """Create source/_posts under the configured HEXO_BASE_PATH if possible."""
+    if not HEXO_BASE_PATH:
+        raise HTTPException(status_code=404, detail="Workspace path not configured.")
+    target = os.path.join(HEXO_BASE_PATH, "source", "_posts")
+    try:
+        os.makedirs(target, exist_ok=True)
+        return {"status": "created", "posts_path": target}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create posts folder: {e}")
