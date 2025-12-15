@@ -116,6 +116,57 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
   permanentDelete: async (path: string): Promise<void> => {
     await apiClient.delete(`/api/trash/${encodeURIComponent(path)}`);
   },
+
+  /**
+   * 批量恢复：并发执行恢复请求，并返回每项的结果信息。
+   * 可传入可选的 AbortSignal 用于取消操作，以及可选的 progress 回调用于前端展示进度。
+   */
+  restoreTrashBatch: async (
+    paths: string[],
+    options?: { signal?: AbortSignal; onProgress?: (completed: number, total: number, item?: string, ok?: boolean) => void }
+  ): Promise<Array<{ path: string; ok: boolean; status?: number; error?: string }>> => {
+    const total = paths.length;
+    let completed = 0;
+    const promises = paths.map(async (p) => {
+      try {
+        const resp = await apiClient.post('/api/trash/restore', { path: p }, { signal: options?.signal });
+        completed += 1;
+        options?.onProgress?.(completed, total, p, true);
+        return { path: p, ok: true, status: resp.status };
+      } catch (err: any) {
+        completed += 1;
+        options?.onProgress?.(completed, total, p, false);
+        return { path: p, ok: false, status: err?.response?.status, error: err?.message || String(err) };
+      }
+    });
+
+    return Promise.all(promises);
+  },
+
+  /**
+   * 批量永久删除：并发执行删除请求，返回每项结果。
+   */
+  permanentDeleteBatch: async (
+    paths: string[],
+    options?: { signal?: AbortSignal; onProgress?: (completed: number, total: number, item?: string, ok?: boolean) => void }
+  ): Promise<Array<{ path: string; ok: boolean; status?: number; error?: string }>> => {
+    const total = paths.length;
+    let completed = 0;
+    const promises = paths.map(async (p) => {
+      try {
+        const resp = await apiClient.delete(`/api/trash/${encodeURIComponent(p)}`, { signal: options?.signal });
+        completed += 1;
+        options?.onProgress?.(completed, total, p, true);
+        return { path: p, ok: true, status: resp.status };
+      } catch (err: any) {
+        completed += 1;
+        options?.onProgress?.(completed, total, p, false);
+        return { path: p, ok: false, status: err?.response?.status, error: err?.message || String(err) };
+      }
+    });
+
+    return Promise.all(promises);
+  },
   
   // setHexoPath 函数已被移除，由 saveConfig 替代
 };
