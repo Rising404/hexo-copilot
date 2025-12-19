@@ -1,5 +1,5 @@
 {
-  "hexo_path": "D:\\MyBlog\\blog",
+  "hexo_path": "D:\\MyBlog\\blog\\source",
   "llm_provider": "gemini",
   "providers": {
     "gemini": {

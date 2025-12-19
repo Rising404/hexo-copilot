@@ -21,6 +21,7 @@ export default function TrashView({ open, onClose, onChanged }: TrashViewProps) 
   const [itemStatuses, setItemStatuses] = useState<Record<string, { status: string; error?: string }>>({});
   const batchControllerRef = useRef<AbortController | null>(null);
   const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
+  const [showEmptyTrashConfirm, setShowEmptyTrashConfirm] = useState(false);
 
   useEffect(() => {
     if (open) fetchTrash();
@@ -191,16 +192,35 @@ export default function TrashView({ open, onClose, onChanged }: TrashViewProps) 
     }
   };
 
+  const handleEmptyTrash = async () => {
+    setShowEmptyTrashConfirm(false);
+    try {
+      await realFileService.emptyTrash?.();
+      setItems([]);
+      setSelected(new Set());
+      onChanged?.();
+    } catch (e: any) {
+      alert(`清空回收站失败: ${e?.message || e}`);
+    }
+  };
+
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-60 flex items-start justify-center bg-black/50 p-6">
       <div className="bg-gray-900 text-gray-100 w-full max-w-3xl rounded-lg shadow-lg overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
-          <div className="text-lg font-semibold">Trash</div>
+          <div className="text-lg font-semibold">回收站</div>
           <div className="flex items-center gap-2">
-            <button onClick={fetchTrash} className="px-2 py-1 bg-gray-800 rounded hover:bg-gray-700">Refresh</button>
-            <button onClick={onClose} className="px-2 py-1 bg-gray-800 rounded hover:bg-gray-700">Close</button>
+            <button 
+              onClick={() => setShowEmptyTrashConfirm(true)} 
+              disabled={items.length === 0}
+              className="px-2 py-1 bg-red-700 rounded hover:bg-red-600 disabled:opacity-50 text-sm"
+            >
+              清空回收站
+            </button>
+            <button onClick={fetchTrash} className="px-2 py-1 bg-gray-800 rounded hover:bg-gray-700">刷新</button>
+            <button onClick={onClose} className="px-2 py-1 bg-gray-800 rounded hover:bg-gray-700">关闭</button>
           </div>
         </div>
 
@@ -304,6 +324,17 @@ export default function TrashView({ open, onClose, onChanged }: TrashViewProps) 
         cancelText="Cancel"
         onCancel={() => setShowBatchDeleteConfirm(false)}
         onConfirm={confirmAndRunBatchDelete}
+      />
+
+      <ConfirmModal
+        open={showEmptyTrashConfirm}
+        title="清空回收站"
+        message="此操作将永久删除回收站中的所有内容，无法恢复。输入 EMPTY 确认清空。"
+        strictLabel="EMPTY"
+        confirmText="清空"
+        cancelText="取消"
+        onCancel={() => setShowEmptyTrashConfirm(false)}
+        onConfirm={handleEmptyTrash}
       />
     </div>
   );

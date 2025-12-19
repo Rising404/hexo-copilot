@@ -57,9 +57,7 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
       return response.data;
     } catch (error: any) {
       console.error('Failed to get files:', error);
-      // 捕获后端返回的更具体的错误信息
-      const detail = error.response?.data?.detail || 'Could not connect to the backend server. Is it running?';
-      alert(`Error fetching files: ${detail}`);
+      // 静默返回空数组，不弹窗打扰用户
       return [];
     }
   },
@@ -123,6 +121,10 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
 
   permanentDelete: async (path: string): Promise<void> => {
     await apiClient.delete(`/api/trash/${encodeURIComponent(path)}`);
+  },
+
+  emptyTrash: async (): Promise<void> => {
+    await apiClient.delete('/api/trash');
   },
 
   initPostsFolder: async (): Promise<any> => {

@@ -15,177 +15,163 @@
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python">
 </p>
 
-**Hexo-Copilot** 是一款运行在你本地电脑上的全栈Web应用，为撰写和管理你的Hexo博客文章提供无缝的、IDE般的体验。它集成了现代化的文件浏览器、功能丰富的Markdown编辑器，以及一个由Google Gemini模型驱动的、具备上下文感知能力的强大AI助手。
+**Hexo-Copilot** 是一款运行在你本地电脑上的全栈 Web 应用，为撰写和管理你的 Hexo 博客文章提供无缝的、IDE 般的体验。它集成了现代化的文件浏览器、功能丰富的 Markdown 编辑器，以及一个由 Google Gemini 模型驱动的、具备上下文感知能力的强大 AI 助手。
 
-告别在编辑器、文件管理器和AI聊天工具之间的频繁切换。Hexo-Copilot将你需要的一切都整合进了一个优雅的界面中。
-<br>
-<br>
+告别在编辑器、文件管理器和 AI 聊天工具之间的频繁切换。Hexo-Copilot 将你需要的一切都整合进了一个优雅的界面中。
 
+---
 
-### ✨ 主要功能
+## ✨ 主要功能
 
-*   **🖥️ 本地优先:** 你的文件始终保留在你的电脑上。本应用通过一个安全的本地后端，直接与你的Hexo项目文件系统进行交互。
-*   **🗂️ 集成文件浏览器:** 直接在应用内浏览、创建、删除和管理你的文章与文件夹，其响应式的目录树结构会实时反映你的 `source/_posts` 目录。
-*   **✍️ 高级Markdown编辑器:** 一个简洁、直观的编辑器，支持分屏视图以便实时预览你的Markdown内容。
-*   **🧠 智能AI助手:**
-    *   **上下文对话:** AI能够在一个会话中记住你的聊天历史，允许你进行深入的追问。
-    *   **智能内容插入:** 将AI生成的内容（文本、代码片段等）一键插入到你光标所在的位置。
-    *   **草稿与编辑:** AI的回答会出现在一个独立的暂存区，允许你在插入文章前对其进行编辑和优化。
-*   **⚡ 现代化技术栈:** 前端采用 React, TypeScript 和 Vite 构建，后端则使用高性能的 Python FastAPI 服务器。
-*   **🚀 一键启动:** 一条简单的 `npm start` 命令即可同时启动前后端服务。
-<br>
-<br>
+### 📁 文件管理
+- **集成文件浏览器**：直接在应用内浏览、创建、删除和管理你的文章与文件夹
+- **灵活的工作目录**：支持任意目录作为工作空间，不强制要求 Hexo 目录结构
+- **当前文件夹上下文**：新建文件/文件夹时自动创建在当前选中的目录下
 
+### 🗑️ 回收站系统
+- **软删除机制**：删除的文件会移动到 `.trash/<timestamp>/` 目录，而非直接删除
+- **回收站管理**：可视化查看已删除项目，支持恢复或永久删除
+- **批量操作**：支持批量恢复/删除，带进度条和取消功能
+- **严格确认**：永久删除操作需要输入确认文本，防止误操作
+- **清空回收站**：一键清空所有回收站内容（需输入 `EMPTY` 确认）
 
-### 🗑️ 回收站（Trash / Recycle Bin） 🔧
-为避免误删，Hexo‑Copilot 支持“软删除 + 回收与恢复”机制：删除的文章会被移动到项目下的 `.trash` 目录并在 UI 的回收站中呈现；你可以在应用中恢复或永久删除这些条目。
+### ✍️ Markdown 编辑器
+- **分屏视图**：支持编辑/分屏模式，实时预览 Markdown 渲染效果
+- **语法高亮**：代码块自动语法高亮显示
+- **自动保存提示**：编辑后可一键保存文件
 
-- 功能要点
-  - ✅ **软删除（Move to .trash）**：删除操作会把文件/文件夹移动到 `source/_posts/.trash/<timestamp>/...`（不可见于 Hexo）；
-  - ✅ **回收站列表**：前端提供回收站模态视图，可查看被删除条目的原始路径与删除时间；
-  - ✅ **恢复（Restore）**：可将条目恢复回原路径；如果目标路径已有同名文件，恢复会失败并返回 **409 (Conflict)**，避免自动覆盖；
-  - ⚠️ **永久删除（Permanent Delete）**：不可逆操作，UI 采用严格确认（需要输入指定文本，如 `DELETE` 或完整路径）防止误操作。
+### 🧠 智能 AI 助手
+- **上下文对话**：AI 能够记住聊天历史，支持深入追问
+- **智能内容插入**：将 AI 生成的内容一键插入到光标位置
+- **草稿暂存区**：AI 回答会显示在独立区域，可编辑后再插入
+- **多模型支持**：支持 Google Gemini 和 OpenAI 模型
 
-- 后端 API（示例）
-  - 列表：GET http://127.0.0.1:8000/api/trash
-  - 恢复：POST http://127.0.0.1:8000/api/trash/restore  
-    Body (JSON): `{ "path": "2025/12/01-my-post.md" }`
-  - 永久删除：DELETE http://127.0.0.1:8000/api/trash/{url-encoded-path}
+### ⚙️ 快速设置
+- **应用内配置**：无需重启即可切换工作目录和 AI 模型
+- **持久化存储**：配置保存在后端 `config.json` 中
 
-- 状态码约定
-  - 200 OK — 成功
-  - 404 Not Found — 指定项不存在
-  - 409 Conflict — 恢复时目标已存在（需要先移除或改名）
+---
 
-> 💡 小提示：请先确保后端服务运行并且 `HEXO_BASE_PATH` 已正确配置（见 `backend/main.py`）；在 Windows 上遇到中文显示问题时，请参考本 README 中的 UTF‑8 配置说明（chcp 65001 / PYTHONUTF8 等）。
-<br>
-<br>
-
-
-### 🛠️ 技术栈
+## 🛠️ 技术栈
 
 | 领域     | 技术                                    |
 | :------- | :-------------------------------------- |
-| 前端     | React 19, TypeScript, Vite, Tailwind CSS|
+| 前端     | React 19, TypeScript, Vite, Tailwind CSS |
 | 后端     | Python 3.9+, FastAPI, Uvicorn           |
-| AI模型   | Google Gemini API (`gemini-1.5-flash`)  |
+| AI 模型  | Google Gemini / OpenAI (可切换)         |
 | 开发工具 | Node.js, npm, `concurrently`            |
-<br>
-<br>
 
+---
 
-### 🚀 快速上手
+## 🚀 快速上手
 
-请遵循以下步骤在你的本地电脑上运行Hexo-Copilot。
-<br>
+### 先决条件
 
-#### [ 先决条件 ] 
+- **[Node.js](https://nodejs.org/)**: 版本 18.x 或更高
+- **[Python](https://www.python.org/)**: 版本 3.9 或更高
+- 一个 **Google Gemini API 密钥** 或 **OpenAI API 密钥**
 
-*   **[Node.js](https://nodejs.org/)**: 版本 18.x 或更高。
-*   **[Python](https://www.python.org/)**: 版本 3.9 或更高。
-*   一个已存在于你本地文件系统的 **Hexo 博客项目**。
-*   一个 **Google Gemini API 密钥**。你可以从 [Google AI Studio](https://ai.google.dev/) 获取。
-<br>
+### 安装与配置
 
-#### [ 安装与配置 ]
+1. **克隆仓库：**
+   ```bash
+   git clone https://github.com/Rising404/hexo-copilot.git
+   cd hexo-copilot
+   ```
 
-1.  **克隆仓库:**
-    ```bash
-    git clone https://github.com/your-username/hexo-copilot.git
-    cd hexo-copilot
-    ```
+2. **安装前端依赖：**
+   ```bash
+   npm install
+   ```
 
-2.  **安装前端依赖:**
-    ```bash
-    npm install
-    ```
+3. **配置 Python 后端环境：**
+   ```bash
+   # 创建虚拟环境
+   python -m venv .venv
+   
+   # 激活虚拟环境
+   # Windows:
+   .\.venv\Scripts\activate
+   # macOS/Linux:
+   source .venv/bin/activate
+   
+   # 安装依赖
+   pip install -r requirements.txt
+   ```
 
-3.  **配置Python后端环境:**
-    *   创建Python虚拟环境:
-        ```bash
-        python -m venv .venv
-        ```
-    *   激活虚拟环境:
-        *   在 **Windows** 上: `.\.venv\Scripts\activate`
-        *   在 **macOS/Linux** 上: `source .venv/bin/activate`
-    *   根据“购物清单”安装后端依赖:
-        ```bash
-        pip install -r requirements.txt
-        ```
+   或使用 npm 辅助脚本：
+   ```bash
+   npm run venv:create
+   npm run venv:install
+   ```
 
-4.  **配置应用:**
-    *   **后端路径:** 打开 `backend/main.py` 文件，将 `HEXO_BASE_PATH` 变量的值更新为你Hexo博客根目录的**绝对路径**。
-        ```python
-        # backend/main.py
-        # !!! 重要：请修改为你的真实博客路径 !!!
-        HEXO_BASE_PATH = "D:/path/to/your/hexo-blog" 
-        ```
-    *   **API密钥:** API密钥将在首次运行时于应用的UI界面中进行配置。该密钥会安全地存储在你浏览器的本地存储中，不会被暴露。
-
-
-**可选：使用仓库内的虚拟环境脚本（推荐）**
-
-项目提供了几个 npm 辅助脚本方便管理 Python 虚拟环境：
-
-* 创建虚拟环境（在项目根目录运行）：
-```bash
-npm run venv:create
-```
-
-* 在创建好的虚拟环境内安装后端依赖：
-```bash
-npm run venv:install
-```
-
-> 注意（Windows）：`venv:install` 和 `dev:backend` 使用 `.\\.venv\\Scripts\\python.exe`，请确保你在 PowerShell/命令行中有权限执行这些脚本。
-
-你也可以直接使用系统 Python 启动后端（如果你不想使用 `.venv`）：
-```bash
-npm run dev:backend:system
-```
-
-**关于 Python UTF‑8 环境（避免终端中文乱码 / mojibake）**
-
-为减少在 Windows 终端中出现中文乱码，本项目在后端启动脚本中设置了 `PYTHONUTF8=1`（通过 `cross-env`），并在启动时传递 `-X utf8` 给 Python 以确保 Python 输出 UTF‑8。请在变更依赖后重新运行：
+### 运行应用
 
 ```bash
-npm install
+npm start
 ```
 
-如果你在 Windows 上仍然看到乱码，请在启动前在 PowerShell 中运行：
-```powershell
-chcp 65001
-```
-或者把下面两行加入你的 PowerShell 配置文件（长期生效）：
+该命令会同时启动：
+- **FastAPI 后端服务**：`http://127.0.0.1:8000`
+- **Vite 前端服务**：`http://localhost:3000`
+
+首次启动时，应用会提示你配置工作目录路径和 API 密钥。
+
+---
+
+## 📡 后端 API
+
+### 配置
+| 方法 | 端点 | 描述 |
+|------|------|------|
+| GET | `/api/config` | 获取当前配置 |
+| POST | `/api/config` | 保存配置 |
+
+### 文件操作
+| 方法 | 端点 | 描述 |
+|------|------|------|
+| GET | `/api/posts` | 获取所有文件列表 |
+| GET | `/api/folders` | 获取所有文件夹列表 |
+| GET | `/api/posts/{filename}` | 读取文件内容 |
+| POST | `/api/posts/new` | 创建新文件 |
+| PUT | `/api/posts/{filename}` | 更新文件内容 |
+| DELETE | `/api/posts/{filename}` | 删除文件（移至回收站） |
+| POST | `/api/folders/new` | 创建新文件夹 |
+| DELETE | `/api/folders/{foldername}` | 删除文件夹（移至回收站） |
+
+### 回收站
+| 方法 | 端点 | 描述 |
+|------|------|------|
+| GET | `/api/trash` | 列出回收站内容 |
+| POST | `/api/trash/restore` | 恢复项目 |
+| DELETE | `/api/trash/{path}` | 永久删除项目 |
+| DELETE | `/api/trash` | 清空回收站 |
+
+---
+
+## 🔧 Windows UTF-8 配置
+
+如果在 Windows 终端中遇到中文乱码，请在 PowerShell 中运行：
+
 ```powershell
 chcp 65001
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 ```
 
-以上设置将确保后端的本地化消息（例如错误或系统提示）以 UTF‑8 输出并正确显示。
-<br>
+或将这两行添加到你的 PowerShell 配置文件中以永久生效。
 
-#### [ 运行应用 ] 
+---
 
-完成所有设置后，你可以从项目的**根目录**下，用一条命令来启动整个应用：
-```
-npm start
-```
-该命令会同时启动：
-*   位于 `http://127.0.0.1:8000` 的 **FastAPI 后端服务**。
-*   位于 `http://localhost:3000` 的 **Vite 前端服务**。
+## 🛣️ 未来路线图
 
-你的默认浏览器应该会自动打开 `http://localhost:3000`。首次启动时，应用会提示你在设置界面输入你的Hexo路径和Gemini API密钥。
+- [ ] **RAG 集成** - 使用本地向量数据库实现长期记忆
+- [ ] **多模态支持** - 在 AI 聊天中支持上传和分析图片
+- [ ] **编辑器升级** - 集成 CodeMirror/Monaco 实现语法高亮
+- [ ] **主题定制** - 允许用户调整 UI 的颜色和外观
+- [ ] **Hexo 命令集成** - 支持 `hexo generate` / `hexo deploy` 等命令
 
-要停止应用，只需在运行 `npm start` 的终端里按下 `Ctrl+C` 即可。
-<br>
-<br>
+---
 
+## 📄 License
 
-### 🛣️ 未来路线图
-
-这仅仅是个开始！以下是计划在未来版本中实现的一些功能：
-- [ ] **v2.0: RAG 集成** - 使用本地向量数据库 (ChromaDB) 实现长期记忆。
-- [ ] **v3.0: 多模态支持** - 在AI聊天中支持上传和分析图片。
-- [ ] **编辑器升级** - 将标准文本区替换为专业的编辑器组件（如CodeMirror），以支持语法高亮和更强大的撤销/重做功能。
-- [ ] **主题定制** - 允许用户调整UI的颜色和外观。
+MIT License

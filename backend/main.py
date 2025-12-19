@@ -45,8 +45,8 @@ def save_config(config: Dict[str, Any]):
 app_config = load_config()
 # 不再硬编码，而是从加载的配置中读取路径
 HEXO_BASE_PATH = app_config.get("hexo_path") 
-# 根据HEXO_BASE_PATH是否存在，来决定POSTS_PATH
-POSTS_PATH = os.path.join(HEXO_BASE_PATH, "source", "_posts") if HEXO_BASE_PATH and os.path.isdir(HEXO_BASE_PATH) else None
+# 直接使用用户指定的路径作为工作目录，不强制要求source/_posts
+POSTS_PATH = HEXO_BASE_PATH if HEXO_BASE_PATH and os.path.isdir(HEXO_BASE_PATH) else None
 
 
 # --- FastAPI 应用实例 (无变化) ---
@@ -94,17 +94,19 @@ async def update_config(config_data: ConfigModel):
         POSTS_PATH = None
         raise HTTPException(status_code=400, detail=f"Invalid path provided: {new_path}")
 
-    # Path exists; accept it as a workspace root
+    # Path exists; accept it as a workspace root and always scan from root recursively
     HEXO_BASE_PATH = new_path
+    POSTS_PATH = HEXO_BASE_PATH  # Always use workspace root
 
-    # If it contains a Hexo-style posts folder, prefer that; otherwise use root as posts root
+    # Check if it's a Hexo structure (just for reporting, doesn't affect scanning)
     candidate = os.path.join(HEXO_BASE_PATH, "source", "_posts")
-    if os.path.isdir(candidate):
-        POSTS_PATH = candidate
-        return {"status": "Configuration saved and posts path detected.", "posts_path": POSTS_PATH, "is_hexo": True}
-    else:
-        POSTS_PATH = HEXO_BASE_PATH
-        return {"status": "Configuration saved; posts folder not detected.", "posts_path": POSTS_PATH, "is_hexo": False}
+    is_hexo = os.path.isdir(candidate)
+    
+    return {
+        "status": "Configuration saved. Scanning from workspace root.",
+        "posts_path": POSTS_PATH,
+        "is_hexo": is_hexo
+    }
 
 @app.get("/api/config", response_model=ConfigModel)
 async def get_config():
@@ -134,18 +136,62 @@ def get_all_folders(root_dir):
 @app.get("/api/posts", response_model=List[str])
 async def list_posts():
     if not POSTS_PATH or not os.path.exists(POSTS_PATH):
-        raise HTTPException(status_code=404, detail="Posts directory not found. Please configure the Hexo path via the API.")
+        return []  # 路径未配置或不存在时返回空列表
     return get_all_md_files(POSTS_PATH)
 
 @app.get("/api/folders", response_model=List[str])
 async def list_folders():
     if not POSTS_PATH or not os.path.exists(POSTS_PATH):
-         raise HTTPException(status_code=404, detail="Posts directory not found. Please configure the Hexo path via the API.")
+        return []  # 路径未配置或不存在时返回空列表
     return get_all_folders(POSTS_PATH)
 
 # ... (从这里开始，剩下的所有文件操作API的代码和你的原始文件完全一样) ...
 # ... 你只需把你的原始文件从 @app.get("/api/posts/{filename:path}") 到结尾的所有内容复制粘贴到这里即可 ...
 # ... 为确保完整性，我还是帮你把它们都列出来 ...
+
+# 重要：/api/posts/new 必须在 /api/posts/{filename:path} 之前定义，否则会被错误匹配
+@app.post("/api/posts/new")
+async def create_post(post: NewPost):
+    if not POSTS_PATH:
+        raise HTTPException(status_code=404, detail="工作目录未配置，请先在Settings中设置路径")
+
+    # Basic validation: non-empty filename
+    if not post.filename or not post.filename.strip():
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+
+    # Normalize the filename
+    normalized_filename = post.filename.strip().replace('\\', '/')
+    
+    # Prevent path traversal
+    root = os.path.normpath(os.path.abspath(POSTS_PATH))
+    target = os.path.normpath(os.path.abspath(os.path.join(POSTS_PATH, normalized_filename)))
+    if not (target == root or target.startswith(root + os.sep)):
+        raise HTTPException(status_code=400, detail="无效的文件路径")
+
+    filepath = target
+    if os.path.exists(filepath):
+        raise HTTPException(status_code=409, detail="文件已存在")
+
+    # Ensure parent folder exists
+    parent_dir = os.path.dirname(filepath)
+    if parent_dir and parent_dir != root:
+        os.makedirs(parent_dir, exist_ok=True)
+
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("---\ntitle: New Post\ndate: {}\n---\n\n".format(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')))
+        return {"status": "File created", "path": os.path.relpath(filepath, POSTS_PATH).replace('\\', '/')}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建文件失败: {str(e)}")
+
+@app.post("/api/folders/new")
+async def create_folder(folder: NewFolder):
+    if not POSTS_PATH: raise HTTPException(status_code=404, detail="Hexo path not configured.")
+    folderpath = os.path.join(POSTS_PATH, folder.path)
+    if os.path.exists(folderpath):
+        raise HTTPException(status_code=409, detail="Folder already exists")
+    os.makedirs(folderpath)
+    return {"status": "Folder created"}
 
 @app.get("/api/posts/{filename:path}", response_model=str)
 async def get_post(filename: str):
@@ -164,43 +210,6 @@ async def save_post(filename: str, post: PostContent):
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(post.content)
     return {"status": "File saved"}
-
-@app.post("/api/posts/new")
-async def create_post(post: NewPost):
-    if not POSTS_PATH:
-        raise HTTPException(status_code=404, detail="Posts directory not configured.")
-
-    # Basic validation: non-empty filename
-    if not post.filename or not post.filename.strip():
-        raise HTTPException(status_code=400, detail="Invalid filename")
-
-    # Prevent path traversal: ensure resulting absolute path is inside POSTS_PATH
-    root = os.path.abspath(POSTS_PATH)
-    target = os.path.abspath(os.path.join(POSTS_PATH, post.filename))
-    if not (target == root or target.startswith(root + os.sep)):
-        raise HTTPException(status_code=400, detail="Invalid filename or path traversal detected")
-
-    filepath = target
-    if os.path.exists(filepath):
-        raise HTTPException(status_code=409, detail="File already exists")
-
-    # Ensure parent folder exists (handle root file case gracefully)
-    parent_dir = os.path.dirname(filepath)
-    if parent_dir:
-        os.makedirs(parent_dir, exist_ok=True)
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write("---\ntitle: New Post\ndate: {}\n---\n\n".format(datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')))
-    return {"status": "File created", "path": os.path.relpath(filepath, POSTS_PATH).replace('\\\\', '/') }
-
-@app.post("/api/folders/new")
-async def create_folder(folder: NewFolder):
-    if not POSTS_PATH: raise HTTPException(status_code=404, detail="Hexo path not configured.")
-    folderpath = os.path.join(POSTS_PATH, folder.path)
-    if os.path.exists(folderpath):
-        raise HTTPException(status_code=409, detail="Folder already exists")
-    os.makedirs(folderpath)
-    return {"status": "Folder created"}
     
 def ensure_trash_dir():
     if not POSTS_PATH:
@@ -249,7 +258,7 @@ async def delete_folder(path: str):
 @app.get("/api/trash", response_model=List[str])
 async def list_trash():
     if not POSTS_PATH or not os.path.exists(POSTS_PATH):
-        raise HTTPException(status_code=404, detail="Posts directory not found. Please configure the Hexo path via the API.")
+        return []  # 路径未配置时返回空列表
     trash_root = os.path.join(POSTS_PATH, ".trash")
     if not os.path.exists(trash_root):
         return []
@@ -313,6 +322,18 @@ async def delete_trash(path: str):
     else:
         os.remove(target)
     return {"status": "deleted"}
+
+
+@app.delete("/api/trash")
+async def empty_trash():
+    """清空整个回收站"""
+    if not POSTS_PATH:
+        raise HTTPException(status_code=404, detail="Hexo path not configured.")
+    trash_root = os.path.join(POSTS_PATH, ".trash")
+    if os.path.exists(trash_root):
+        shutil.rmtree(trash_root)
+        os.makedirs(trash_root, exist_ok=True)  # 重新创建空的.trash文件夹
+    return {"status": "trash emptied"}
 
 
 @app.post("/api/posts/init")

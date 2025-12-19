@@ -43,41 +43,19 @@ export default function QuickSettings({ open, onClose, config, onSaved }: Props)
 
         <div className="mt-4 space-y-3">
           <div>
-            <label className="block text-sm text-gray-300">Workspace Path</label>
+            <label className="block text-sm text-gray-300">工作目录路径</label>
             <input
               value={localConfig?.hexo_path || ''}
               onChange={(e) => setLocalConfig(prev => ({ ...(prev || { hexo_path: '' , llm_provider: 'gemini', providers: { gemini: { api_key: null }, openai: { api_key: null } } }), hexo_path: e.target.value }))}
               className="w-full p-2 rounded bg-gray-800 border border-gray-700"
-              placeholder="Absolute path to workspace or Hexo root"
+              placeholder="例如: D:/Blog/my-hexo-site"
             />
+            <p className="text-xs text-gray-500 mt-1">设置后会递归扫描该目录下所有文件和文件夹</p>
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-300">AI Provider</label>
-            <select
-              value={localConfig?.llm_provider || 'gemini'}
-              onChange={(e) => setLocalConfig(prev => ({ ...(prev || { hexo_path: '' , llm_provider: 'gemini', providers: { gemini: { api_key: null }, openai: { api_key: null } } }), llm_provider: e.target.value as any }))}
-              className="w-full p-2 rounded bg-gray-800 border border-gray-700"
-            >
-              <option value="gemini">Google Gemini</option>
-              <option value="openai">OpenAI</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm text-gray-300">API Key</label>
-            <input
-              type="password"
-              value={localConfig?.providers[localConfig?.llm_provider || 'gemini']?.api_key || ''}
-              onChange={(e) => setLocalConfig(prev => ({ ...(prev || { hexo_path: '' , llm_provider: 'gemini', providers: { gemini: { api_key: null }, openai: { api_key: null } } }), providers: { ...(prev?.providers || {}), [prev!.llm_provider]: { api_key: e.target.value } } }))}
-              className="w-full p-2 rounded bg-gray-800 border border-gray-700"
-              placeholder="Enter API Key"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 mt-2">
-            <button onClick={handleSave} disabled={isSaving} className="px-3 py-1 bg-blue-600 rounded text-sm">{isSaving ? 'Saving...' : 'Save'}</button>
-            <button onClick={onClose} className="px-3 py-1 bg-gray-800 rounded text-sm">Cancel</button>
+          <div className="flex justify-end gap-2 mt-4">
+            <button onClick={handleSave} disabled={isSaving} className="px-3 py-1 bg-blue-600 rounded text-sm">{isSaving ? '保存中...' : '保存'}</button>
+            <button onClick={onClose} className="px-3 py-1 bg-gray-800 rounded text-sm">取消</button>
           </div>
         </div>
       </div>

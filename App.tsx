@@ -109,38 +109,74 @@ const FileTreeNode = ({
   depth = 0, 
   currentFilename, 
   onFileClick,
-  onDelete
+  onDelete,
+  onFolderClick
 }: { 
   node: FileNode; 
   depth?: number; 
   currentFilename: string | null;
   onFileClick: (path: string) => void;
   onDelete: (node: FileNode) => void;
+  onFolderClick?: (path: string) => void;
 }) => {
   const [isOpen, setIsOpen] = useState(true);
+  
+  // 判断是否是 .trash 文件夹
+  const isTrashFolder = node.name === '.trash' && node.type === 'folder';
+  // 判断是否在 .trash 文件夹内
+  const isInsideTrash = node.path.startsWith('.trash/') || node.path === '.trash';
 
   if (node.type === 'folder') {
+    // 文件夹样式 - 玻璃态设计
+    const folderBaseStyle = isTrashFolder 
+      ? 'mx-1 my-0.5 rounded-lg bg-gradient-to-r from-red-500/10 to-red-900/5 backdrop-blur-sm border border-red-500/20 shadow-lg shadow-red-900/10 hover:from-red-500/15 hover:to-red-900/10 hover:border-red-400/30' 
+      : isInsideTrash
+        ? 'mx-1 my-0.5 rounded-md bg-red-950/10 hover:bg-red-900/15 border-l-2 border-red-500/30'
+        : 'mx-1 my-0.5 rounded-md hover:bg-white/5 hover:backdrop-blur-sm border-l-2 border-transparent hover:border-amber-400/50';
+    
+    const folderTextStyle = isTrashFolder 
+      ? 'text-red-300 drop-shadow-[0_0_3px_rgba(239,68,68,0.3)]' 
+      : isInsideTrash 
+        ? 'text-red-300/70'
+        : 'text-amber-300';
+
+    const folderIconStyle = isTrashFolder 
+      ? 'text-red-400 drop-shadow-[0_0_4px_rgba(239,68,68,0.4)]' 
+      : isInsideTrash
+        ? 'text-red-400/60'
+        : 'text-amber-400 drop-shadow-[0_0_3px_rgba(251,191,36,0.3)]';
+
     return (
       <div>
         <div 
-          className="flex items-center justify-between group px-2 py-1 text-sm text-gray-400 hover:text-white hover:bg-gray-800 cursor-pointer select-none"
-          style={{ paddingLeft: `${depth * 12 + 8}px` }}
-          onClick={() => setIsOpen(!isOpen)}
+          className={`flex items-center justify-between group px-3 py-2 text-sm cursor-pointer select-none transition-all duration-200 ${folderBaseStyle}`}
+          style={{ paddingLeft: `${depth * 16 + 12}px` }}
+          onClick={() => {
+            setIsOpen(!isOpen);
+            onFolderClick?.(node.path);
+          }}
         >
-          <div className="flex items-center gap-2 truncate">
-            {isOpen ? <FolderOpenIcon /> : <FolderIcon />}
-            <span className="truncate">{node.name}</span>
+          <div className="flex items-center gap-2.5 truncate">
+            <span className={`transition-transform duration-200 ${isOpen ? 'scale-110' : ''} ${folderIconStyle}`}>
+              {isOpen ? <FolderOpenIcon /> : <FolderIcon />}
+            </span>
+            <span className={`truncate font-medium ${folderTextStyle}`}>{node.name}</span>
+            {isTrashFolder && (
+              <span className="text-[10px] text-red-300/80 bg-red-500/20 backdrop-blur-sm px-2 py-0.5 rounded-full border border-red-500/30 shadow-inner">
+                🗑️ 回收站
+              </span>
+            )}
           </div>
           <button 
             onClick={(e) => { e.stopPropagation(); onDelete(node); }}
-            className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
-            title="Delete Folder"
+            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
+            title={isInsideTrash ? "永久删除" : "移至回收站"}
           >
             <TrashIcon />
           </button>
         </div>
         {isOpen && node.children && (
-          <div>
+          <div className={isTrashFolder ? 'ml-1 border-l border-red-500/10' : 'ml-1 border-l border-slate-700/30'}>
             {node.children.map(child => (
               <FileTreeNode 
                 key={child.path} 
@@ -149,6 +185,7 @@ const FileTreeNode = ({
                 currentFilename={currentFilename}
                 onFileClick={onFileClick}
                 onDelete={onDelete}
+                onFolderClick={onFolderClick}
               />
             ))}
           </div>
@@ -157,25 +194,40 @@ const FileTreeNode = ({
     );
   }
 
+  // 文件样式 - 玻璃态设计
+  const isSelected = currentFilename === node.path;
+  const fileBaseStyle = isSelected
+    ? 'mx-1 my-0.5 rounded-lg bg-gradient-to-r from-blue-500/15 to-cyan-500/10 backdrop-blur-sm border border-blue-400/30 shadow-lg shadow-blue-500/10'
+    : isInsideTrash
+      ? 'mx-1 my-0.5 rounded-md hover:bg-red-500/10 border-l-2 border-transparent hover:border-red-400/40'
+      : 'mx-1 my-0.5 rounded-md hover:bg-white/5 hover:backdrop-blur-sm border-l-2 border-transparent hover:border-slate-400/30';
+  
+  const fileTextStyle = isSelected
+    ? 'text-blue-200 font-medium drop-shadow-[0_0_4px_rgba(59,130,246,0.4)]'
+    : isInsideTrash
+      ? 'text-red-300/60'
+      : 'text-slate-300/90 group-hover:text-slate-100';
+
+  const fileIconStyle = isSelected
+    ? 'text-cyan-400 drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]'
+    : isInsideTrash
+      ? 'text-red-400/40'
+      : 'text-slate-500 group-hover:text-slate-400';
+
   return (
     <div 
-      className={`
-        flex items-center justify-between group px-2 py-1 text-sm rounded-r cursor-pointer select-none transition-colors
-        ${currentFilename === node.path 
-          ? 'bg-blue-900/30 text-blue-400 border-l-2 border-blue-500' 
-          : 'text-gray-400 hover:bg-gray-800 hover:text-white border-l-2 border-transparent'}
-      `}
-      style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      className={`flex items-center justify-between group px-3 py-2 text-sm cursor-pointer select-none transition-all duration-200 ${fileBaseStyle}`}
+      style={{ paddingLeft: `${depth * 16 + 12}px` }}
       onClick={() => onFileClick(node.path)}
     >
-      <div className="flex items-center gap-2 truncate">
-        <FileIcon />
-        <span className="truncate">{node.name}</span>
+      <div className="flex items-center gap-2.5 truncate">
+        <span className={`transition-all duration-200 ${fileIconStyle}`}><FileIcon /></span>
+        <span className={`truncate ${fileTextStyle}`}>{node.name}</span>
       </div>
       <button 
         onClick={(e) => { e.stopPropagation(); onDelete(node); }}
-        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 transition-opacity"
-        title="Delete File"
+        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
+        title={isInsideTrash ? "永久删除" : "移至回收站"}
       >
         <TrashIcon />
       </button>
@@ -207,6 +259,7 @@ export default function App() {
   const [postsDetected, setPostsDetected] = useState<boolean | null>(null);
   const [postsPath, setPostsPath] = useState<string | null>(null);
   const [showQuickSettings, setShowQuickSettings] = useState(false);
+  const [currentFolder, setCurrentFolder] = useState<string>(""); // 用户当前选中的文件夹路径
   
   // View Modes: 'edit' | 'split'
   const [viewMode, setViewMode] = useState<'edit' | 'split'>('edit');
@@ -249,7 +302,16 @@ export default function App() {
       }
     } catch (error) {
       console.error("Failed to load initial config from backend.", error);
-      alert("Could not connect to backend to load configuration.");
+      // 即使后端连接失败，也要设置默认配置让用户能看到设置界面
+      setConfig({
+        hexo_path: null,
+        llm_provider: 'gemini',
+        providers: {
+          gemini: { api_key: null },
+          openai: { api_key: null }
+        }
+      });
+      // 不弹出alert，让用户可以在设置界面中配置（后端可能尚未启动）
     }
   };
 
@@ -376,41 +438,57 @@ export default function App() {
   };
 
   const handleCreateFile = async () => {
-    const filename = window.prompt("Enter new file path (e.g. folder/new-post.md):");
+    const prompt = currentFolder 
+      ? `在 "${currentFolder}/" 下创建文件 (例如: new-post.md 或 subfolder/new-post.md):`
+      : "创建文件 (例如: folder/new-post.md):";
+    const filename = window.prompt(prompt);
     // 如果用户未提供路径则直接返回
     if (!filename || filename.trim() === '') return;
 
+    // 构建完整路径：currentFolder + 用户输入
+    const fullPath = currentFolder ? `${currentFolder}/${filename}` : filename;
+
     try {
-      await realFileService.createPost(filename);
+      await realFileService.createPost(fullPath);
       // 创建成功后刷新文件系统
       await refreshFileSystem();
       // 自动选中并打开新创建的文件 (normalize same as service)
-      const normalized = filename.trim().replace(/\\/g, '/');
+      const normalized = fullPath.trim().replace(/\\/g, '/');
       const finalName = normalized.endsWith('.md') ? normalized : `${normalized}.md`;
       await handleFileClick(finalName);
     } catch (e: any) {
-      // Normalize different error shapes into readable text
-      let detail: string;
-      if (e?.response?.data) {
-        detail = typeof e.response.data === 'string' ? e.response.data : JSON.stringify(e.response.data);
+      // 提取并显示具体错误信息
+      let detail: string = 'Unknown error';
+      
+      if (e?.response?.data?.detail) {
+        detail = e.response.data.detail;
+      } else if (e?.response?.data) {
+        const data = e.response.data;
+        detail = typeof data === 'string' ? data : JSON.stringify(data);
       } else if (e?.message) {
         detail = e.message;
-      } else {
-        try { detail = JSON.stringify(e); } catch { detail = String(e); }
+      } else if (typeof e === 'string') {
+        detail = e;
       }
-      // 提供清晰的错误提示（显示后端返回的 detail 以帮助诊断 422）
-      alert(`Failed to create file: ${detail}`);
-      console.error(e);
+      
+      alert(`创建文件失败: ${detail}`);
+      console.error('创建文件错误详情:', e);
     }
   };
 
   const handleCreateFolder = async () => {
-    const folderPath = window.prompt("Enter new folder path (e.g. my-folder or nested/folder):");
+    const prompt = currentFolder
+      ? `在 "${currentFolder}/" 下创建文件夹 (例如: my-folder):`
+      : "创建文件夹 (例如: my-folder 或 nested/folder):";
+    const folderPath = window.prompt(prompt);
     // 如果用户未提供路径则直接返回
     if (!folderPath || folderPath.trim() === '') return;
 
+    // 构建完整路径
+    const fullPath = currentFolder ? `${currentFolder}/${folderPath}` : folderPath;
+
     try {
-      await realFileService.createFolder(folderPath);
+      await realFileService.createFolder(fullPath);
       // 创建成功后刷新文件系统
       await refreshFileSystem();
     } catch (e: any) {
@@ -432,8 +510,31 @@ export default function App() {
   const [showTrash, setShowTrash] = useState(false);
 
   const handleDelete = async (node: FileNode) => {
-    // Open confirmation modal; actual delete happens in performDelete
-    setPendingDelete(node);
+    // 判断是否在 .trash 文件夹内
+    const isInsideTrash = node.path.startsWith('.trash/') || node.path === '.trash';
+    
+    if (isInsideTrash) {
+      // .trash 内的内容需要确认后永久删除
+      const confirmMsg = `确定要永久删除 "${node.name}" 吗？此操作无法恢复。`;
+      if (window.confirm(confirmMsg)) {
+        try {
+          // 使用永久删除API，传入相对于.trash的路径
+          const trashRelativePath = node.path.replace(/^\.trash\/?/, '');
+          if (trashRelativePath) {
+            await realFileService.permanentDelete(trashRelativePath);
+          } else {
+            // 删除整个 .trash 文件夹
+            await realFileService.emptyTrash();
+          }
+          await refreshFileSystem();
+        } catch (e: any) {
+          alert(`永久删除失败: ${e?.message || e}`);
+        }
+      }
+    } else {
+      // 普通文件/文件夹：显示确认弹窗，移至回收站
+      setPendingDelete(node);
+    }
   };
 
   const performDelete = async (node: FileNode) => {
@@ -544,34 +645,34 @@ export default function App() {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-900 text-white">
         <div className="w-full max-w-lg p-8 bg-gray-800 rounded-lg shadow-lg border border-gray-700">
-          <h1 className="text-2xl font-bold mb-6 text-blue-400">Hexo Copilot Setup</h1>
+          <h1 className="text-2xl font-bold mb-6 text-blue-400">Hexo Copilot 设置</h1>
           <div className="space-y-4">
-            {/* Hexo Path Input */}
+            {/* 工作目录路径 */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-gray-300">Hexo Blog Path (Absolute)</label>
+              <label className="block text-sm font-medium mb-2 text-gray-300">工作目录路径（绝对路径）</label>
               <input 
                 type="text" 
                 value={config.hexo_path || ""} 
                 onChange={(e) => setConfig(prev => ({...prev!, hexo_path: e.target.value}))}
                 className="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-blue-500 outline-none"
-                placeholder="e.g., D:/Blog/my-hexo-site"
+                placeholder="例如: D:/Blog/my-hexo-site"
               />
             </div>
 
-            {/* LLM Provider Selector */}
+            {/* AI 模型选择 */}
             <div>
-              <label className="block text-sm font-medium mb-2 text-gray-300">AI Provider</label>
+              <label className="block text-sm font-medium mb-2 text-gray-300">AI 模型</label>
               <select 
                 value={config.llm_provider}
                 onChange={(e) => setConfig(prev => ({...prev!, llm_provider: e.target.value as 'gemini' | 'openai'}))}
                 className="w-full p-2 rounded bg-gray-900 border border-gray-600 focus:border-blue-500 outline-none"
               >
                 <option value="gemini">Google Gemini</option>
-                <option value="openai">OpenAI (or compatible)</option>
+                <option value="openai">OpenAI</option>
               </select>
             </div>
           
-           {/* API Key Input */}
+           {/* API Key */}
             <div>
               <label className="block text-sm font-medium mb-2 text-gray-300">
                 {config.llm_provider === 'gemini' ? 'Gemini API Key' : 'OpenAI API Key'}
@@ -598,17 +699,9 @@ export default function App() {
               onClick={handleSetup} 
               className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded transition-colors mt-2"
             >
-              Save and Start Copilot
+              保存并开始
             </button>
-            {postsDetected === false && (
-              <div className="mt-3 p-3 bg-yellow-800 rounded">
-                <div className="text-sm">No Hexo `source/_posts` folder detected under the specified path.</div>
-                <div className="text-sm mt-2">You can either create it now or continue using the selected folder as a workspace (all `.md`/`.txt` files will be shown).</div>
-                <div className="flex gap-2 mt-2">
-                  <button onClick={handleCreatePostsFolder} className="px-3 py-1 bg-green-600 rounded text-sm">Create posts folder</button>
-                </div>
-              </div>
-            )}
+            <p className="text-xs text-gray-500 mt-2">设置后会递归扫描该目录下的所有 .md 文件和子文件夹</p>
           </div>
         </div>
       </div>
@@ -619,32 +712,52 @@ export default function App() {
   return (
     <div className={`flex h-screen w-screen bg-gray-900 text-gray-200 overflow-hidden ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
       
-      {/* 1. LEFT COLUMN: File Tree (Collapsible & Resizable) */}
+      {/* 1. LEFT COLUMN: File Tree (Collapsible & Resizable) - 玻璃态设计 */}
       {isLeftPanelOpen && (
         <div 
           style={{ width: leftWidth }} 
-          className="flex flex-col border-r border-gray-800 bg-gray-900 flex-shrink-0 transition-[width] duration-0 ease-linear"
+          className="flex flex-col border-r border-white/5 bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-gray-900/95 backdrop-blur-xl flex-shrink-0 transition-[width] duration-0 ease-linear shadow-2xl shadow-black/20"
         >
-          <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+          {/* Header - 玻璃态 */}
+          <div className="p-4 border-b border-white/10 flex items-center justify-between bg-gradient-to-r from-blue-500/5 to-purple-500/5 backdrop-blur-sm">
             <h2 className="font-bold text-gray-100 flex items-center gap-2">
-              <span className="text-blue-500 font-mono">Hexo</span> Copilot
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 font-mono tracking-tight drop-shadow-[0_0_8px_rgba(59,130,246,0.5)]">Hexo</span>
+              <span className="text-slate-300/80 font-light">Copilot</span>
             </h2>
-            <div className="flex gap-1">
-              <button onClick={handleCreateFolder} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors" title="New Folder">
+            <div className="flex gap-1 p-1 rounded-lg bg-white/5 backdrop-blur-sm border border-white/10">
+              <button onClick={handleCreateFolder} className="p-1.5 hover:bg-amber-500/20 rounded-md text-slate-400 hover:text-amber-300 hover:shadow-[0_0_8px_rgba(251,191,36,0.3)] transition-all duration-200" title="新建文件夹">
                 <FolderPlusIcon />
               </button>
-              <button onClick={handleCreateFile} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors" title="New File">
+              <button onClick={handleCreateFile} className="p-1.5 hover:bg-blue-500/20 rounded-md text-slate-400 hover:text-blue-300 hover:shadow-[0_0_8px_rgba(59,130,246,0.3)] transition-all duration-200" title="新建文件">
                 <FilePlusIcon />
               </button>
-              <button onClick={refreshFileSystem} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors" title="Refresh">
+              <button onClick={refreshFileSystem} className="p-1.5 hover:bg-green-500/20 rounded-md text-slate-400 hover:text-green-300 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] transition-all duration-200" title="刷新">
                 <RefreshIcon />
               </button>
-              <button onClick={() => setShowTrash(true)} className="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors" title="Trash">
+              <button onClick={() => setShowTrash(true)} className="p-1.5 hover:bg-red-500/20 rounded-md text-slate-400 hover:text-red-300 hover:shadow-[0_0_8px_rgba(239,68,68,0.3)] transition-all duration-200" title="回收站">
                 <TrashIcon />
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
+          
+          {/* 当前文件夹指示器 - 玻璃态 */}
+          {currentFolder && (
+            <div className="mx-2 mt-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-blue-500/10 to-cyan-500/5 backdrop-blur-sm border border-blue-400/20 flex items-center justify-between text-xs shadow-lg shadow-blue-500/5">
+              <div className="flex items-center gap-2 text-blue-300">
+                <span className="drop-shadow-[0_0_4px_rgba(59,130,246,0.4)]"><FolderOpenIcon /></span>
+                <span className="truncate font-medium" title={currentFolder}>{currentFolder}/</span>
+              </div>
+              <button 
+                onClick={() => setCurrentFolder("")}
+                className="text-blue-300/70 hover:text-blue-200 px-2.5 py-1 hover:bg-blue-400/20 rounded-md transition-all duration-200 border border-transparent hover:border-blue-400/30"
+              >
+                ← 根目录
+              </button>
+            </div>
+          )}
+          
+          {/* File Tree */}
+          <div className="flex-1 overflow-y-auto py-2">
              {fileTree.map(node => (
                <FileTreeNode 
                 key={node.path} 
@@ -652,26 +765,44 @@ export default function App() {
                 currentFilename={currentFilename}
                 onFileClick={handleFileClick}
                 onDelete={handleDelete}
+                onFolderClick={(path) => setCurrentFolder(path)}
                />
              ))}
 
              {/* Confirmation modal for destructive actions */}
              <ConfirmModal
                open={!!pendingDelete}
-               title="Confirm Deletion"
-               message={pendingDelete ? `Are you sure you want to delete '${pendingDelete.name}' (${pendingDelete.type})?` : undefined}
+               title="确认删除"
+               message={pendingDelete ? `确定要删除 '${pendingDelete.name}' (${pendingDelete.type === 'folder' ? '文件夹' : '文件'}) 吗?` : undefined}
                strictLabel={strictDeleteMode && pendingDelete ? pendingDelete.name : undefined}
-               confirmText="Delete"
-               cancelText="Cancel"
+               confirmText="删除"
+               cancelText="取消"
                onCancel={() => setPendingDelete(null)}
                onConfirm={() => pendingDelete && performDelete(pendingDelete)}
              />
 
              <TrashView open={showTrash} onClose={() => setShowTrash(false)} onChanged={() => { refreshFileSystem(); }} />
-             {fileList.length === 0 && folderList.length === 0 && <div className="text-center text-gray-500 text-sm mt-10">Empty directory</div>}
+             {fileList.length === 0 && folderList.length === 0 && (
+               <div className="flex flex-col items-center justify-center text-center text-sm mt-10 mx-4 py-8 rounded-xl bg-gradient-to-b from-slate-800/30 to-transparent backdrop-blur-sm border border-white/5">
+                 <div className="text-4xl mb-3 opacity-50">📁</div>
+                 <span className="text-slate-400">目录为空</span>
+                 <span className="text-slate-500 text-xs mt-1">点击上方按钮创建文件或文件夹</span>
+               </div>
+             )}
           </div>
-          <div className="p-3 border-t border-gray-800 text-xs text-gray-600 text-center">
-            {fileList.length} files, {folderList.length} folders
+          
+          {/* Footer Stats - 玻璃态 */}
+          <div className="mx-2 mb-2 px-4 py-3 rounded-lg bg-gradient-to-r from-slate-800/50 to-slate-700/30 backdrop-blur-sm border border-white/5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="flex items-center gap-2 text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-gradient-to-r from-blue-400 to-cyan-400 shadow-[0_0_6px_rgba(59,130,246,0.5)]"></span>
+                <span>{fileList.length} 文件</span>
+              </span>
+              <span className="flex items-center gap-2 text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 shadow-[0_0_6px_rgba(251,191,36,0.5)]"></span>
+                <span>{folderList.length} 文件夹</span>
+              </span>
+            </div>
           </div>
         </div>
       )}
@@ -780,22 +911,71 @@ export default function App() {
       >
         
         {/* Header */}
-        <div className="h-14 border-b border-gray-800 flex items-center justify-between px-4 bg-gray-900 flex-shrink-0">
-          <span className="font-semibold text-gray-200">AI Assistant</span>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={handleNewTopic}
-              className="text-xs flex items-center gap-1 text-gray-400 hover:text-white px-2 py-1 hover:bg-gray-800 rounded transition-colors"
-            >
-              <PlusIcon /> New Chat
-            </button>
+        <div className="border-b border-gray-800 bg-gray-900 flex-shrink-0">
+          <div className="h-14 flex items-center justify-between px-4">
+            <span className="font-semibold text-gray-200">AI Assistant</span>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleNewTopic}
+                className="text-xs flex items-center gap-1 text-gray-400 hover:text-white px-2 py-1 hover:bg-gray-800 rounded transition-colors"
+                title="开始新对话"
+              >
+                <PlusIcon /> New Chat
+              </button>
 
-            <button 
-              onClick={() => setShowQuickSettings(true)}
-              className="text-xs flex items-center gap-1 text-gray-400 hover:text-white px-2 py-1 hover:bg-gray-800 rounded transition-colors"
-            >
-              <SidebarIcon /> Settings
-            </button>
+              <button 
+                onClick={() => setShowQuickSettings(true)}
+                className="text-xs flex items-center gap-1 text-gray-400 hover:text-white px-2 py-1 hover:bg-gray-800 rounded transition-colors"
+              >
+                <SidebarIcon /> Settings
+              </button>
+            </div>
+          </div>
+          
+          {/* 模型选择和API Key 快速设置 */}
+          <div className="px-4 pb-3 pt-1 space-y-2">
+            <div className="flex gap-2 items-center">
+              <select
+                value={config?.llm_provider || 'gemini'}
+                onChange={(e) => {
+                  const newProvider = e.target.value as 'gemini' | 'openai';
+                  setConfig(prev => prev ? {...prev, llm_provider: newProvider} : null);
+                  // 切换模型时重新初始化会话
+                  const apiKey = config?.providers[newProvider]?.api_key;
+                  if (apiKey) {
+                    chatSessionRef.current = createChatSession(apiKey);
+                  }
+                }}
+                className="flex-1 text-xs px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-300"
+              >
+                <option value="gemini">Google Gemini</option>
+                <option value="openai">OpenAI</option>
+              </select>
+              <input
+                type="password"
+                value={config?.providers[config?.llm_provider || 'gemini']?.api_key || ''}
+                onChange={(e) => {
+                  const newKey = e.target.value;
+                  setConfig(prev => {
+                    if (!prev) return null;
+                    const updated = {
+                      ...prev,
+                      providers: {
+                        ...prev.providers,
+                        [prev.llm_provider]: { api_key: newKey }
+                      }
+                    };
+                    // 实时更新聊天会话
+                    if (newKey) {
+                      chatSessionRef.current = createChatSession(newKey);
+                    }
+                    return updated;
+                  });
+                }}
+                placeholder="API Key"
+                className="flex-1 text-xs px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-300"
+              />
+            </div>
           </div>
         </div>
 
