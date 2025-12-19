@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 // import { mockFileService } from './services/mockFileService'; // Using realFileService instead for real filesystem operations
 import { realFileService, AppConfig, LLMProvider } from './services/realFileService';
@@ -252,6 +252,12 @@ export default function App() {
   const [editorContent, setEditorContent] = useState<string>("");
   const [isLoadingFile, setIsLoadingFile] = useState(false);
 
+  // --- State: Undo/Redo History ---
+  const [undoStack, setUndoStack] = useState<string[]>([]);
+  const [redoStack, setRedoStack] = useState<string[]>([]);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving'>('saved');
+  const lastContentRef = useRef<string>(""); // 用于跟踪上一次内容，避免重复记录
+
   // --- 新的状态管理 ---
   const [config, setConfig] = useState<AppConfig | null>(null); // 初始为null，表示正在加载
   const [isPathSet, setIsPathSet] = useState(false);
@@ -306,6 +312,93 @@ export default function App() {
 
   loadInitialConfig();
 }, []); // 这个effect只在组件首次加载时运行一次
+
+  // --- Undo/Redo Handlers ---
+  const handleEditorChange = useCallback((newContent: string) => {
+    // 记录当前内容到撤回栈（只有内容真正变化时才记录）
+    if (lastContentRef.current !== newContent) {
+      setUndoStack(prev => {
+        // 限制历史栈大小为100条
+        const newStack = [...prev, lastContentRef.current];
+        return newStack.slice(-100);
+      });
+      setRedoStack([]); // 新的编辑会清空重做栈
+      lastContentRef.current = newContent;
+    }
+    setEditorContent(newContent);
+    setSaveStatus('unsaved');
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    
+    const previousContent = undoStack[undoStack.length - 1];
+    const newUndoStack = undoStack.slice(0, -1);
+    
+    // 将当前内容推入重做栈
+    setRedoStack(prev => [...prev, editorContent]);
+    setUndoStack(newUndoStack);
+    setEditorContent(previousContent);
+    lastContentRef.current = previousContent;
+    setSaveStatus('unsaved');
+  }, [undoStack, editorContent]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    
+    const nextContent = redoStack[redoStack.length - 1];
+    const newRedoStack = redoStack.slice(0, -1);
+    
+    // 将当前内容推入撤回栈
+    setUndoStack(prev => [...prev, editorContent]);
+    setRedoStack(newRedoStack);
+    setEditorContent(nextContent);
+    lastContentRef.current = nextContent;
+    setSaveStatus('unsaved');
+  }, [redoStack, editorContent]);
+
+  const handleSave = useCallback(async () => {
+    if (!currentFilename) return;
+    
+    setSaveStatus('saving');
+    try {
+      await realFileService.savePostContent(currentFilename, editorContent);
+      setSaveStatus('saved');
+    } catch (e) {
+      console.error('Failed to save file:', e);
+      setSaveStatus('unsaved');
+      alert('保存失败，请重试');
+    }
+  }, [currentFilename, editorContent]);
+
+  // --- Keyboard Shortcuts ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+S 或 Cmd+S 保存
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+      
+      // Ctrl+Z 或 Cmd+Z 撤回
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      
+      // Ctrl+Shift+Z 或 Cmd+Shift+Z 或 Ctrl+Y 重做
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleSave, handleUndo, handleRedo]);
 
   // --- Resize Handlers ---
   const handleResizeStart = (e: React.MouseEvent, type: 'left' | 'right' | 'split' | 'draft') => {
@@ -422,6 +515,11 @@ export default function App() {
       const content = await realFileService.getPostContent(filename);
       setCurrentFilename(filename);
       setEditorContent(content);
+      // 重置撤回/重做历史
+      setUndoStack([]);
+      setRedoStack([]);
+      lastContentRef.current = content;
+      setSaveStatus('saved');
     } catch (e) {
       console.error("Failed to load file", e);
     } finally {
@@ -552,13 +650,6 @@ export default function App() {
       console.error(e);
     } finally {
       setPendingDelete(null);
-    }
-  };
-
-  const handleSaveFile = async () => {
-    if (currentFilename) {
-      await realFileService.savePostContent(currentFilename, editorContent);
-      alert(`Saved ${currentFilename}`);
     }
   };
 
@@ -837,17 +928,22 @@ export default function App() {
             </div>
 
             <button 
-              onClick={handleSaveFile}
-              disabled={!currentFilename}
+              onClick={handleSave}
+              disabled={!currentFilename || saveStatus === 'saving'}
               className={`
                 flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors
-                ${currentFilename 
-                  ? 'bg-green-700 hover:bg-green-600 text-white shadow-sm' 
-                  : 'bg-gray-800 text-gray-500 cursor-not-allowed'}
+                ${!currentFilename 
+                  ? 'bg-gray-800 text-gray-500 cursor-not-allowed'
+                  : saveStatus === 'saving'
+                    ? 'bg-yellow-700 text-white cursor-wait'
+                    : saveStatus === 'unsaved'
+                      ? 'bg-orange-600 hover:bg-orange-500 text-white shadow-sm'
+                      : 'bg-green-700 hover:bg-green-600 text-white shadow-sm'}
               `}
+              title={saveStatus === 'unsaved' ? '有未保存的更改 (Ctrl+S)' : saveStatus === 'saving' ? '保存中...' : '已保存'}
             >
               <SaveIcon />
-              Save
+              {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'unsaved' ? 'Save*' : 'Saved'}
             </button>
           </div>
         </div>
@@ -881,7 +977,7 @@ export default function App() {
                 <textarea
                   ref={editorRef}
                   value={editorContent}
-                  onChange={(e) => setEditorContent(e.target.value)}
+                  onChange={(e) => handleEditorChange(e.target.value)}
                   className="w-full h-full p-6 bg-[#0d1117] text-gray-300 font-mono text-sm resize-none outline-none focus:ring-0 leading-relaxed"
                   spellCheck={false}
                   placeholder="Select a file to start writing..."
