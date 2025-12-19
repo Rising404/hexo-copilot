@@ -14,14 +14,27 @@ const apiClient = axios.create({
   },
 });
 
+// 支持的 LLM 提供商类型
+export type LLMProvider = 'openai' | 'claude' | 'gemini' | 'qwen' | 'deepseek';
+
+// 每个提供商的配置
+export interface ProviderConfig {
+  api_key: string | null;
+  base_url?: string;  // 支持自定义代理地址（国内访问需求）
+  model?: string;     // 使用的模型名称
+}
+
 // 定义一个与后端Pydantic模型匹配的配置类型
 // 这有助于在TypeScript中获得类型安全
 export interface AppConfig {
   hexo_path: string | null;
-  llm_provider: 'gemini' | 'openai';
+  llm_provider: LLMProvider;
   providers: {
-    gemini: { api_key: string | null };
-    openai: { api_key: string | null };
+    openai: ProviderConfig;
+    claude: ProviderConfig;
+    gemini: ProviderConfig;
+    qwen: ProviderConfig;
+    deepseek: ProviderConfig;
   };
 }
 

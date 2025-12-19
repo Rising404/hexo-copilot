@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 // import { mockFileService } from './services/mockFileService'; // Using realFileService instead for real filesystem operations
-import { realFileService, AppConfig } from './services/realFileService';
-import { createChatSession, sendMessageToGemini } from './services/geminiService';
+import { realFileService, AppConfig, LLMProvider } from './services/realFileService';
+import { createChatSession, sendMessage, ChatSession, getDefaultConfig, PROVIDER_DEFAULTS } from './services/llmService';
 import { ChatMessage, Role } from './types';
-import { Chat } from "@google/genai";
 import { 
   SaveIcon, SendIcon, RefreshIcon, PlusIcon, ArrowLeftIcon, FileIcon, EyeIcon, 
   EditIcon, SplitIcon, SidebarIcon, GripHorizontalIcon, FolderIcon, FolderOpenIcon, 
@@ -269,7 +268,7 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [draftResponse, setDraftResponse] = useState("");
   const [isAiThinking, setIsAiThinking] = useState(false);
-  const chatSessionRef = useRef<Chat | null>(null);
+  const chatSessionRef = useRef<ChatSession | null>(null);
 
   // --- Refs ---
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -286,11 +285,8 @@ export default function App() {
       // 检查加载的路径是否有效
       if (savedConfig.hexo_path) {
         setIsPathSet(true);
-        // 使用加载的apiKey初始化聊天
-        const apiKey = savedConfig.providers[savedConfig.llm_provider]?.api_key;
-        if (apiKey) {
-          chatSessionRef.current = createChatSession(apiKey);
-        }
+        // 使用加载的配置初始化聊天会话
+        chatSessionRef.current = createChatSession(savedConfig);
         // 尝试刷新文件系统以判断是否探测到 posts
         const ok = await refreshFileSystem();
         if (ok) {
@@ -303,14 +299,7 @@ export default function App() {
     } catch (error) {
       console.error("Failed to load initial config from backend.", error);
       // 即使后端连接失败，也要设置默认配置让用户能看到设置界面
-      setConfig({
-        hexo_path: null,
-        llm_provider: 'gemini',
-        providers: {
-          gemini: { api_key: null },
-          openai: { api_key: null }
-        }
-      });
+      setConfig(getDefaultConfig());
       // 不弹出alert，让用户可以在设置界面中配置（后端可能尚未启动）
     }
   };
@@ -388,11 +377,8 @@ export default function App() {
       setPostsDetected(!!resp?.is_hexo);
       setPostsPath(resp?.posts_path || config.hexo_path || null);
 
-      // 使用新的apiKey重新初始化聊天
-      const apiKey = config.providers[config.llm_provider]?.api_key;
-      if (apiKey) {
-         chatSessionRef.current = createChatSession(apiKey);
-      }
+      // 使用新的配置重新初始化聊天会话
+      chatSessionRef.current = createChatSession(config);
 
       // 尝试刷新文件系统（始终尝试，以便显示 workspace 内容），但不让错误阻塞 UI
       const ok = await refreshFileSystem();
@@ -416,10 +402,16 @@ export default function App() {
     }
   };
 
-  const handleQuickSettingsSaved = async (resp: any) => {
+  const handleQuickSettingsSaved = async (resp: any, savedConfig?: AppConfig) => {
+    // 更新配置状态
+    if (savedConfig) {
+      setConfig(savedConfig);
+      // 重新初始化聊天会话
+      chatSessionRef.current = createChatSession(savedConfig);
+    }
     setIsPathSet(true);
     setPostsDetected(!!resp?.is_hexo);
-    setPostsPath(resp?.posts_path || config?.hexo_path || null);
+    setPostsPath(resp?.posts_path || savedConfig?.hexo_path || config?.hexo_path || null);
     const ok = await refreshFileSystem();
     if (!ok) setPostsDetected(false);
   };
@@ -574,16 +566,16 @@ export default function App() {
   const handleSendMessage = async () => {
     if (!chatInput.trim()) return;
     
-      if (!chatSessionRef.current) {
-      const apiKey = config?.providers[config.llm_provider]?.api_key;
-      if (apiKey) {
-        chatSessionRef.current = createChatSession(apiKey);
-      } else {
-        setChatHistory(prev => [...prev, { role: Role.USER, text: chatInput }]);
-        setChatHistory(prev => [...prev, { role: Role.MODEL, text: "Please set your Gemini API Key in the setup screen or reload." }]);
-        setChatInput("");
-        return;
-      }
+    // 如果没有会话，尝试创建
+    if (!chatSessionRef.current && config) {
+      chatSessionRef.current = createChatSession(config);
+    }
+    
+    if (!chatSessionRef.current) {
+      setChatHistory(prev => [...prev, { role: Role.USER, text: chatInput }]);
+      setChatHistory(prev => [...prev, { role: Role.MODEL, text: "请先在设置中配置 API Key" }]);
+      setChatInput("");
+      return;
     }
 
     const userMsg: ChatMessage = { role: Role.USER, text: chatInput };
@@ -591,11 +583,11 @@ export default function App() {
     setChatInput("");
     setIsAiThinking(true);
     try {
-      const responseText = await sendMessageToGemini(chatSessionRef.current, userMsg.text);
+      const responseText = await sendMessage(chatSessionRef.current, userMsg.text);
       setChatHistory(prev => [...prev, { role: Role.MODEL, text: responseText }]);
       setDraftResponse(responseText);
     } catch (error) {
-      setChatHistory(prev => [...prev, { role: Role.MODEL, text: "Sorry, I encountered an error." }]);
+      setChatHistory(prev => [...prev, { role: Role.MODEL, text: "抱歉，请求出错了，请检查 API 配置。" }]);
     } finally {
       setIsAiThinking(false);
       scrollToBottom();
@@ -603,9 +595,8 @@ export default function App() {
   };
 
   const handleNewTopic = () => {
-    const apiKey = config?.providers[config.llm_provider]?.api_key;
-    if (apiKey) {
-      chatSessionRef.current = createChatSession(apiKey);
+    if (config) {
+      chatSessionRef.current = createChatSession(config);
       setChatHistory([]);
       setDraftResponse("");
     }
@@ -936,45 +927,32 @@ export default function App() {
           <div className="px-4 pb-3 pt-1 space-y-2">
             <div className="flex gap-2 items-center">
               <select
-                value={config?.llm_provider || 'gemini'}
+                value={config?.llm_provider || 'openai'}
                 onChange={(e) => {
-                  const newProvider = e.target.value as 'gemini' | 'openai';
-                  setConfig(prev => prev ? {...prev, llm_provider: newProvider} : null);
-                  // 切换模型时重新初始化会话
-                  const apiKey = config?.providers[newProvider]?.api_key;
-                  if (apiKey) {
-                    chatSessionRef.current = createChatSession(apiKey);
-                  }
-                }}
-                className="flex-1 text-xs px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-300"
-              >
-                <option value="gemini">Google Gemini</option>
-                <option value="openai">OpenAI</option>
-              </select>
-              <input
-                type="password"
-                value={config?.providers[config?.llm_provider || 'gemini']?.api_key || ''}
-                onChange={(e) => {
-                  const newKey = e.target.value;
+                  const newProvider = e.target.value as LLMProvider;
                   setConfig(prev => {
                     if (!prev) return null;
-                    const updated = {
-                      ...prev,
-                      providers: {
-                        ...prev.providers,
-                        [prev.llm_provider]: { api_key: newKey }
-                      }
-                    };
-                    // 实时更新聊天会话
-                    if (newKey) {
-                      chatSessionRef.current = createChatSession(newKey);
-                    }
+                    const updated = {...prev, llm_provider: newProvider};
+                    // 切换模型时重新初始化会话
+                    chatSessionRef.current = createChatSession(updated);
                     return updated;
                   });
                 }}
-                placeholder="API Key"
                 className="flex-1 text-xs px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-300"
-              />
+              >
+                <option value="openai">GPT</option>
+                <option value="claude">Claude</option>
+                <option value="gemini">Gemini</option>
+                <option value="qwen">Qwen</option>
+                <option value="deepseek">DeepSeek</option>
+              </select>
+              <button
+                onClick={() => setShowQuickSettings(true)}
+                className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors"
+                title="打开设置"
+              >
+                ⚙️
+              </button>
             </div>
           </div>
         </div>
@@ -1076,7 +1054,7 @@ export default function App() {
         open={showQuickSettings}
         onClose={() => setShowQuickSettings(false)}
         config={config}
-        onSaved={(resp) => { setShowQuickSettings(false); handleQuickSettingsSaved(resp); }}
+        onSaved={(resp, savedConfig) => { setShowQuickSettings(false); handleQuickSettingsSaved(resp, savedConfig); }}
       />
     )}
     </div>

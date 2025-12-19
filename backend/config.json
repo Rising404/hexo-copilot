@@ -1,12 +1,31 @@
 {
   "hexo_path": null,
-  "llm_provider": "gemini",
+  "llm_provider": "openai",
   "providers": {
-    "gemini": {
-      "api_key": null
-    },
     "openai": {
-      "api_key": null
+      "api_key": null,
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-4o-mini"
+    },
+    "claude": {
+      "api_key": null,
+      "base_url": "https://api.anthropic.com",
+      "model": "claude-3-5-sonnet-20241022"
+    },
+    "gemini": {
+      "api_key": null,
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "model": "gemini-2.0-flash-exp"
+    },
+    "qwen": {
+      "api_key": null,
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-plus"
+    },
+    "deepseek": {
+      "api_key": null,
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat"
     }
   }
 }

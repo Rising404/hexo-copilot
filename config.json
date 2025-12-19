@@ -2,11 +2,30 @@
   "hexo_path": "D:\\MyBlog\\blog\\source",
   "llm_provider": "gemini",
   "providers": {
-    "gemini": {
-      "api_key": null
-    },
     "openai": {
-      "api_key": null
+      "api_key": null,
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-4o-mini"
+    },
+    "claude": {
+      "api_key": null,
+      "base_url": "https://api.anthropic.com",
+      "model": "claude-3-5-sonnet-20241022"
+    },
+    "gemini": {
+      "api_key": "sk-aGtPakxNC1nazpgI8emfsYBmGYNubXrVXxyUDFHwR9GAMVc2",
+      "base_url": "https://xiaoai.plus/v1/",
+      "model": "gemini-3-flash-preview-thinking"
+    },
+    "qwen": {
+      "api_key": null,
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-plus"
+    },
+    "deepseek": {
+      "api_key": null,
+      "base_url": "https://api.deepseek.com/v1",
+      "model": "deepseek-chat"
     }
   }
 }

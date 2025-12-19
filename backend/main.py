@@ -18,11 +18,13 @@ def load_config() -> Dict[str, Any]:
     if not os.path.exists(CONFIG_FILE):
         default_config = {
             "hexo_path": None,
-            # 为下一步支持多模型做准备
-            "llm_provider": "gemini",
+            "llm_provider": "openai",
             "providers": {
-                "gemini": {"api_key": None},
-                "openai": {"api_key": None}
+                "openai": {"api_key": None, "base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"},
+                "claude": {"api_key": None, "base_url": "https://api.anthropic.com", "model": "claude-3-5-sonnet-20241022"},
+                "gemini": {"api_key": None, "base_url": "https://generativelanguage.googleapis.com/v1beta", "model": "gemini-2.0-flash-exp"},
+                "qwen": {"api_key": None, "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model": "qwen-plus"},
+                "deepseek": {"api_key": None, "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat"}
             }
         }
         save_config(default_config)
@@ -32,7 +34,7 @@ def load_config() -> Dict[str, Any]:
             return json.load(f)
     except (json.JSONDecodeError, FileNotFoundError):
         # 如果文件损坏或为空，也返回一个默认配置
-        return {"hexo_path": None, "llm_provider": "gemini", "providers": {}}
+        return {"hexo_path": None, "llm_provider": "openai", "providers": {}}
 
 
 def save_config(config: Dict[str, Any]):
@@ -62,6 +64,8 @@ app.add_middleware(
 # --- 3. 新增Pydantic模型用于配置API (新增) ---
 class ProviderDetails(BaseModel):
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
 
 class ConfigModel(BaseModel):
     hexo_path: Optional[str] = None
