@@ -1,11 +1,7 @@
 # Hexo-Copilot
 
 <p align="center">
-  <img alt="Hexo-Copilot Banner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</p>
-
-<p align="center">
-  <strong>本地部署的 Hexo 博客 AI 写作助手 (Built with Google AI Studio)</strong>
+  <strong>本地部署的 Hexo 博客 AI 写作助手</strong>
 </p>
 
 <p align="center">
@@ -15,7 +11,7 @@
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python">
 </p>
 
-**Hexo-Copilot** 是一款运行在你本地电脑上的全栈 Web 应用，为撰写和管理你的 Hexo 博客文章提供无缝的、IDE 般的体验。它集成了现代化的文件浏览器、功能丰富的 Markdown 编辑器，以及一个由 Google Gemini 模型驱动的、具备上下文感知能力的强大 AI 助手。
+**Hexo-Copilot** 是一款运行在你本地电脑上的全栈 Web 应用，为撰写和管理你的 Hexo 博客文章提供无缝的、IDE 般的体验。它集成了现代化的文件浏览器、功能丰富的 Markdown 编辑器，以及一个支持多模型的、具备上下文感知能力的强大 AI 助手。
 
 告别在编辑器、文件管理器和 AI 聊天工具之间的频繁切换。Hexo-Copilot 将你需要的一切都整合进了一个优雅的界面中。
 
@@ -40,14 +36,21 @@
 - **语法高亮**：代码块自动语法高亮显示
 - **自动保存提示**：编辑后可一键保存文件
 
-### 🧠 智能 AI 助手
+### 🤖 多模型 AI 助手
+- **多模型支持**：支持 5 种主流 AI 模型
+  - **OpenAI** (GPT-4o, GPT-4o-mini 等)
+  - **Claude** (Claude 3.5 Sonnet, Claude 3 Opus 等)
+  - **Google Gemini** (Gemini 2.0 Flash, Gemini 1.5 Pro 等)
+  - **通义千问** (qwen-turbo, qwen-plus, qwen-max)
+  - **DeepSeek** (deepseek-chat, deepseek-coder)
+- **国内代理支持**：所有模型都支持自定义 API 地址，方便国内用户使用
 - **上下文对话**：AI 能够记住聊天历史，支持深入追问
 - **智能内容插入**：将 AI 生成的内容一键插入到光标位置
 - **草稿暂存区**：AI 回答会显示在独立区域，可编辑后再插入
-- **多模型支持**：支持 Google Gemini 和 OpenAI 模型
 
 ### ⚙️ 快速设置
-- **应用内配置**：无需重启即可切换工作目录和 AI 模型
+- **可视化配置界面**：模型选择、API Key、代理地址一目了然
+- **无缝切换**：无需重启即可切换工作目录和 AI 模型
 - **持久化存储**：配置保存在后端 `config.json` 中
 
 ---
@@ -58,7 +61,7 @@
 | :------- | :-------------------------------------- |
 | 前端     | React 19, TypeScript, Vite, Tailwind CSS |
 | 后端     | Python 3.9+, FastAPI, Uvicorn           |
-| AI 模型  | Google Gemini / OpenAI (可切换)         |
+| AI 模型  | OpenAI / Claude / Gemini / Qwen / DeepSeek |
 | 开发工具 | Node.js, npm, `concurrently`            |
 
 ---
@@ -69,9 +72,9 @@
 
 - **[Node.js](https://nodejs.org/)**: 版本 18.x 或更高
 - **[Python](https://www.python.org/)**: 版本 3.9 或更高
-- 一个 **Google Gemini API 密钥** 或 **OpenAI API 密钥**
+- 任意一个支持的 AI 模型 API 密钥
 
-### 安装与配置
+### 一键启动（推荐）
 
 1. **克隆仓库：**
    ```bash
@@ -79,12 +82,24 @@
    cd hexo-copilot
    ```
 
-2. **安装前端依赖：**
+2. **双击 `start-app.bat`** 即可自动：
+   - 检测并安装依赖
+   - 启动前端和后端服务
+   - 自动打开浏览器
+
+3. **（可选）创建桌面快捷方式：**
+   - 双击 `create-shortcut.bat`
+   - 桌面会出现 "Hexo Copilot" 快捷方式
+   - 以后双击即可一键启动
+
+### 手动安装
+
+1. **安装前端依赖：**
    ```bash
    npm install
    ```
 
-3. **配置 Python 后端环境：**
+2. **配置 Python 后端环境：**
    ```bash
    # 创建虚拟环境
    python -m venv .venv
@@ -99,23 +114,27 @@
    pip install -r requirements.txt
    ```
 
-   或使用 npm 辅助脚本：
+3. **运行应用：**
    ```bash
-   npm run venv:create
-   npm run venv:install
+   npm start
    ```
-
-### 运行应用
-
-```bash
-npm start
-```
 
 该命令会同时启动：
 - **FastAPI 后端服务**：`http://127.0.0.1:8000`
 - **Vite 前端服务**：`http://localhost:3000`
 
-首次启动时，应用会提示你配置工作目录路径和 API 密钥。
+---
+
+## 🎨 自定义图标
+
+### 浏览器标签图标
+将以下文件放到项目根目录：
+- `favicon.ico` (32x32) - 浏览器标签图标
+
+### 桌面快捷方式图标
+将 `app.ico` 放到项目根目录，然后重新运行 `create-shortcut.bat`
+
+> 💡 推荐使用 [favicon.io](https://favicon.io/) 生成全套图标
 
 ---
 
