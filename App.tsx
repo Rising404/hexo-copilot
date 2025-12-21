@@ -380,6 +380,7 @@ const FileTreeNode = ({
 export default function App() {
   // --- State: Layout & Resizing ---
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [leftWidth, setLeftWidth] = useState(260);
   const [rightWidth, setRightWidth] = useState(360);
   const [draftHeight, setDraftHeight] = useState(150);
@@ -566,8 +567,14 @@ export default function App() {
         const newWidth = Math.max(0, Math.min(600, startLeftWidth + (e.clientX - startX)));
         setLeftWidth(newWidth);
       } else if (type === 'right') {
-        const newWidth = Math.max(250, Math.min(800, startRightWidth - (e.clientX - startX)));
-        setRightWidth(newWidth);
+        const newWidth = Math.max(0, Math.min(800, startRightWidth - (e.clientX - startX)));
+        // 当宽度小于100时自动隐藏右侧面板
+        if (newWidth < 100) {
+          setIsRightPanelOpen(false);
+          setRightWidth(360); // 重置为默认宽度，下次打开时使用
+        } else {
+          setRightWidth(newWidth);
+        }
       } else if (type === 'draft') {
         const newHeight = Math.max(50, Math.min(600, startDraftHeight - (e.clientY - startY)));
         setDraftHeight(newHeight);
@@ -1369,6 +1376,15 @@ export default function App() {
               <SaveIcon />
               {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'unsaved' ? 'Save*' : 'Saved'}
             </button>
+
+            {/* Right Panel Toggle - 放在最右边，靠近AI面板 */}
+            <button 
+              onClick={() => setIsRightPanelOpen(!isRightPanelOpen)} 
+              className={`p-1.5 rounded transition-colors ${!isRightPanelOpen ? 'bg-gray-800 text-blue-400' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+              title="Toggle AI Assistant"
+            >
+              <SidebarIcon />
+            </button>
           </div>
         </div>
         
@@ -1473,9 +1489,10 @@ export default function App() {
       </div>
 
       {/* Resizer: Center <-> Right */}
-      <ResizerVertical onMouseDown={(e) => handleResizeStart(e, 'right')} />
+      {isRightPanelOpen && <ResizerVertical onMouseDown={(e) => handleResizeStart(e, 'right')} />}
 
       {/* 3. RIGHT COLUMN: AI Assistant (Resizable) */}
+      {isRightPanelOpen && (
       <div 
         style={{ width: rightWidth }}
         className="flex flex-col bg-gray-900 border-l border-gray-800 flex-shrink-0"
@@ -1629,6 +1646,7 @@ export default function App() {
         </div>
 
       </div>
+      )}
     {showQuickSettings && (
       <QuickSettings
         open={showQuickSettings}
