@@ -85,6 +85,16 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
     }
   },
 
+  getImages: async (): Promise<string[]> => {
+    try {
+      const response = await apiClient.get<string[]>('/api/images');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get images:', error);
+      return [];
+    }
+  },
+
   getPostContent: async (filename: string): Promise<string> => {
     const response = await apiClient.get<string>(`/api/posts/${encodeURIComponent(filename)}`);
     return response.data;
@@ -107,6 +117,20 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
 
   createFolder: async (path: string): Promise<void> => {
     await apiClient.post('/api/folders/new', { path });
+  },
+
+  // --- 图片上传 ---
+  uploadImage: async (file: File, folder: string = ''): Promise<{ path: string; filename: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', folder);
+    
+    const response = await apiClient.post('/api/upload/image', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
   },
   
   deletePost: async (filename: string): Promise<void> => {
@@ -143,6 +167,23 @@ export const realFileService = { // 注意：这里不再显式声明类型为 F
   initPostsFolder: async (): Promise<any> => {
     const resp = await apiClient.post('/api/posts/init');
     return resp.data;
+  },
+
+  // --- 移动和重命名 ---
+  moveItem: async (source: string, destination: string): Promise<{ new_path: string }> => {
+    const resp = await apiClient.post('/api/move', { source, destination });
+    return resp.data;
+  },
+
+  renameItem: async (oldPath: string, newName: string): Promise<{ new_path: string }> => {
+    const resp = await apiClient.post('/api/rename', { old_path: oldPath, new_name: newName });
+    return resp.data;
+  },
+
+  // 获取资源URL（用于图片等）
+  getAssetUrl: (relativePath: string): string => {
+    // 处理相对路径，生成完整的API URL
+    return `${API_BASE_URL}/api/assets/${encodeURIComponent(relativePath).replace(/%2F/g, '/')}`;
   },
 
   /**

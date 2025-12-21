@@ -9,6 +9,7 @@ type ConfirmModalProps = {
   cancelText?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  children?: React.ReactNode;
 };
 
 export default function ConfirmModal({
@@ -20,6 +21,7 @@ export default function ConfirmModal({
   cancelText = 'Cancel',
   onConfirm,
   onCancel,
+  children,
 }: ConfirmModalProps) {
   const [input, setInput] = useState('');
 
@@ -38,6 +40,8 @@ export default function ConfirmModal({
         <div className="font-semibold text-lg mb-2">{title}</div>
         <div className="text-sm text-gray-300 mb-4">{message}</div>
 
+        {children}
+
         {strict && (
           <div className="mb-3">
             <label className="text-xs text-gray-400">Type <span className="font-mono">{strictLabel}</span> to confirm</label>
@@ -49,12 +53,12 @@ export default function ConfirmModal({
           </div>
         )}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 mt-4">
           <button onClick={onCancel} className="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600">{cancelText}</button>
           <button
             onClick={onConfirm}
             disabled={!canConfirm}
-            className={`px-3 py-1 rounded ${canConfirm ? 'bg-red-600 hover:bg-red-500' : 'bg-red-800 opacity-60 cursor-not-allowed'}`}
+            className={`px-3 py-1 rounded ${canConfirm ? 'bg-blue-600 hover:bg-blue-500' : 'bg-blue-800 opacity-60 cursor-not-allowed'}`}
           >
             {confirmText}
           </button>

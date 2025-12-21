@@ -7,17 +7,35 @@ import { ChatMessage, Role } from './types';
 import { 
   SaveIcon, SendIcon, RefreshIcon, PlusIcon, ArrowLeftIcon, FileIcon, EyeIcon, 
   EditIcon, SplitIcon, SidebarIcon, GripHorizontalIcon, FolderIcon, FolderOpenIcon, 
-  TrashIcon, FilePlusIcon, FolderPlusIcon 
+  TrashIcon, FilePlusIcon, FolderPlusIcon, PencilIcon, ImageIcon, MarkdownIcon, ImagePlusIcon 
 } from './components/Icon';
 import ConfirmModal from './components/ConfirmModal';
 import TrashView from './components/TrashView';
 import QuickSettings from './components/QuickSettings';
+
+// API基础URL用于图片
+const API_BASE_URL = 'http://127.0.0.1:8000';
+
+// 图片文件扩展名
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'];
+
+// 判断是否为图片文件
+const isImageFile = (filename: string): boolean => {
+  const lower = filename.toLowerCase();
+  return IMAGE_EXTENSIONS.some(ext => lower.endsWith(ext));
+};
+
+// 判断是否为Markdown文件
+const isMarkdownFile = (filename: string): boolean => {
+  return filename.toLowerCase().endsWith('.md');
+};
 
 // --- Types for File Tree ---
 interface FileNode {
   name: string;
   path: string;
   type: 'file' | 'folder';
+  fileType?: 'markdown' | 'image' | 'other';
   children?: FileNode[];
 }
 
@@ -62,11 +80,20 @@ const buildFileTree = (files: string[], folders: string[]): FileNode[] => {
       currentLevel = node.children!;
     });
 
+    // Determine file type
+    let fileType: 'markdown' | 'image' | 'other' = 'other';
+    if (isMarkdownFile(fileName)) {
+      fileType = 'markdown';
+    } else if (isImageFile(fileName)) {
+      fileType = 'image';
+    }
+
     // Add file node
     currentLevel.push({
       name: fileName,
       path: filePath,
-      type: 'file'
+      type: 'file',
+      fileType
     });
   });
 
@@ -109,7 +136,13 @@ const FileTreeNode = ({
   currentFilename, 
   onFileClick,
   onDelete,
-  onFolderClick
+  onFolderClick,
+  onMove,
+  onRename,
+  draggedItem,
+  setDraggedItem,
+  dropTarget,
+  setDropTarget
 }: { 
   node: FileNode; 
   depth?: number; 
@@ -117,6 +150,12 @@ const FileTreeNode = ({
   onFileClick: (path: string) => void;
   onDelete: (node: FileNode) => void;
   onFolderClick?: (path: string) => void;
+  onMove?: (source: string, destination: string) => void;
+  onRename?: (node: FileNode) => void;
+  draggedItem?: string | null;
+  setDraggedItem?: (path: string | null) => void;
+  dropTarget?: string | null;
+  setDropTarget?: (path: string | null) => void;
 }) => {
   const [isOpen, setIsOpen] = useState(true);
   
@@ -125,13 +164,59 @@ const FileTreeNode = ({
   // 判断是否在 .trash 文件夹内
   const isInsideTrash = node.path.startsWith('.trash/') || node.path === '.trash';
 
+  // 拖拽事件处理
+  const handleDragStart = (e: React.DragEvent) => {
+    if (isInsideTrash) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData('text/plain', node.path);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggedItem?.(node.path);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem?.(null);
+    setDropTarget?.(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (node.type !== 'folder' || isInsideTrash) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropTarget?.(node.path);
+  };
+
+  const handleDragLeave = () => {
+    setDropTarget?.(null);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const sourcePath = e.dataTransfer.getData('text/plain');
+    if (sourcePath && node.type === 'folder' && sourcePath !== node.path && !isInsideTrash) {
+      // 防止移动到自己的子目录
+      if (!node.path.startsWith(sourcePath + '/')) {
+        onMove?.(sourcePath, node.path);
+      }
+    }
+    setDraggedItem?.(null);
+    setDropTarget?.(null);
+  };
+
+  const isDragOver = dropTarget === node.path && node.type === 'folder';
+  const isDragging = draggedItem === node.path;
+
   if (node.type === 'folder') {
     // 文件夹样式 - 玻璃态设计
     const folderBaseStyle = isTrashFolder 
       ? 'mx-1 my-0.5 rounded-lg bg-gradient-to-r from-red-500/10 to-red-900/5 backdrop-blur-sm border border-red-500/20 shadow-lg shadow-red-900/10 hover:from-red-500/15 hover:to-red-900/10 hover:border-red-400/30' 
       : isInsideTrash
         ? 'mx-1 my-0.5 rounded-md bg-red-950/10 hover:bg-red-900/15 border-l-2 border-red-500/30'
-        : 'mx-1 my-0.5 rounded-md hover:bg-white/5 hover:backdrop-blur-sm border-l-2 border-transparent hover:border-amber-400/50';
+        : isDragOver
+          ? 'mx-1 my-0.5 rounded-md bg-blue-500/20 border-2 border-blue-400 border-dashed'
+          : 'mx-1 my-0.5 rounded-md hover:bg-white/5 hover:backdrop-blur-sm border-l-2 border-transparent hover:border-amber-400/50';
     
     const folderTextStyle = isTrashFolder 
       ? 'text-red-300 drop-shadow-[0_0_3px_rgba(239,68,68,0.3)]' 
@@ -146,10 +231,16 @@ const FileTreeNode = ({
         : 'text-amber-400 drop-shadow-[0_0_3px_rgba(251,191,36,0.3)]';
 
     return (
-      <div>
+      <div className={isDragging ? 'opacity-50' : ''}>
         <div 
           className={`flex items-center justify-between group px-3 py-2 text-sm cursor-pointer select-none transition-all duration-200 ${folderBaseStyle}`}
           style={{ paddingLeft: `${depth * 16 + 12}px` }}
+          draggable={!isInsideTrash}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           onClick={() => {
             setIsOpen(!isOpen);
             onFolderClick?.(node.path);
@@ -166,13 +257,24 @@ const FileTreeNode = ({
               </span>
             )}
           </div>
-          <button 
-            onClick={(e) => { e.stopPropagation(); onDelete(node); }}
-            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
-            title={isInsideTrash ? "永久删除" : "移至回收站"}
-          >
-            <TrashIcon />
-          </button>
+          <div className="flex items-center gap-1">
+            {!isInsideTrash && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); onRename?.(node); }}
+                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 transition-all duration-200"
+                title="重命名"
+              >
+                <PencilIcon />
+              </button>
+            )}
+            <button 
+              onClick={(e) => { e.stopPropagation(); onDelete(node); }}
+              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
+              title={isInsideTrash ? "永久删除" : "移至回收站"}
+            >
+              <TrashIcon />
+            </button>
+          </div>
         </div>
         {isOpen && node.children && (
           <div className={isTrashFolder ? 'ml-1 border-l border-red-500/10' : 'ml-1 border-l border-slate-700/30'}>
@@ -185,6 +287,12 @@ const FileTreeNode = ({
                 onFileClick={onFileClick}
                 onDelete={onDelete}
                 onFolderClick={onFolderClick}
+                onMove={onMove}
+                onRename={onRename}
+                draggedItem={draggedItem}
+                setDraggedItem={setDraggedItem}
+                dropTarget={dropTarget}
+                setDropTarget={setDropTarget}
               />
             ))}
           </div>
@@ -195,6 +303,9 @@ const FileTreeNode = ({
 
   // 文件样式 - 玻璃态设计
   const isSelected = currentFilename === node.path;
+  const isImage = node.fileType === 'image';
+  const isMarkdown = node.fileType === 'markdown';
+  
   const fileBaseStyle = isSelected
     ? 'mx-1 my-0.5 rounded-lg bg-gradient-to-r from-blue-500/15 to-cyan-500/10 backdrop-blur-sm border border-blue-400/30 shadow-lg shadow-blue-500/10'
     : isInsideTrash
@@ -207,29 +318,60 @@ const FileTreeNode = ({
       ? 'text-red-300/60'
       : 'text-slate-300/90 group-hover:text-slate-100';
 
+  // 根据文件类型设置不同的图标颜色
   const fileIconStyle = isSelected
     ? 'text-cyan-400 drop-shadow-[0_0_4px_rgba(34,211,238,0.5)]'
     : isInsideTrash
       ? 'text-red-400/40'
-      : 'text-slate-500 group-hover:text-slate-400';
+      : isImage
+        ? 'text-purple-400 group-hover:text-purple-300'
+        : isMarkdown
+          ? 'text-green-400 group-hover:text-green-300'
+          : 'text-slate-500 group-hover:text-slate-400';
+
+  // 根据文件类型选择图标
+  const renderFileIcon = () => {
+    if (isImage) return <ImageIcon />;
+    if (isMarkdown) return <MarkdownIcon />;
+    return <FileIcon />;
+  };
 
   return (
     <div 
-      className={`flex items-center justify-between group px-3 py-2 text-sm cursor-pointer select-none transition-all duration-200 ${fileBaseStyle}`}
+      className={`flex items-center justify-between group px-3 py-2 text-sm cursor-pointer select-none transition-all duration-200 ${fileBaseStyle} ${isDragging ? 'opacity-50' : ''}`}
       style={{ paddingLeft: `${depth * 16 + 12}px` }}
+      draggable={!isInsideTrash}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onClick={() => onFileClick(node.path)}
     >
       <div className="flex items-center gap-2.5 truncate">
-        <span className={`transition-all duration-200 ${fileIconStyle}`}><FileIcon /></span>
+        <span className={`transition-all duration-200 ${fileIconStyle}`}>{renderFileIcon()}</span>
         <span className={`truncate ${fileTextStyle}`}>{node.name}</span>
+        {isImage && (
+          <span className="text-[10px] text-purple-300/70 bg-purple-500/15 px-1.5 py-0.5 rounded-full">
+            图片
+          </span>
+        )}
       </div>
-      <button 
-        onClick={(e) => { e.stopPropagation(); onDelete(node); }}
-        className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
-        title={isInsideTrash ? "永久删除" : "移至回收站"}
-      >
-        <TrashIcon />
-      </button>
+      <div className="flex items-center gap-1">
+        {!isInsideTrash && (
+          <button 
+            onClick={(e) => { e.stopPropagation(); onRename?.(node); }}
+            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 transition-all duration-200"
+            title="重命名"
+          >
+            <PencilIcon />
+          </button>
+        )}
+        <button 
+          onClick={(e) => { e.stopPropagation(); onDelete(node); }}
+          className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
+          title={isInsideTrash ? "永久删除" : "移至回收站"}
+        >
+          <TrashIcon />
+        </button>
+      </div>
     </div>
   );
 };
@@ -251,6 +393,14 @@ export default function App() {
   const [currentFilename, setCurrentFilename] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState<string>("");
   const [isLoadingFile, setIsLoadingFile] = useState(false);
+
+  // --- State: Drag & Drop ---
+  const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  // --- State: Rename Modal ---
+  const [renameNode, setRenameNode] = useState<FileNode | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   // --- State: Undo/Redo History ---
   const [undoStack, setUndoStack] = useState<string[]>([]);
@@ -441,13 +591,16 @@ export default function App() {
   // --- File Logic ---
   const refreshFileSystem = async () => {
     try {
-      const [files, folders] = await Promise.all([
+      const [mdFiles, folders, imageFiles] = await Promise.all([
         realFileService.getFiles(),
-        realFileService.getFolders()
+        realFileService.getFolders(),
+        realFileService.getImages()
       ]);
-      setFileList(files);
+      // 合并Markdown文件和图片文件
+      const allFiles = [...mdFiles, ...imageFiles];
+      setFileList(allFiles);
       setFolderList(folders);
-      setFileTree(buildFileTree(files, folders));
+      setFileTree(buildFileTree(allFiles, folders));
       return true;
     } catch (e) {
       console.error("Failed to refresh file system", e);
@@ -456,6 +609,62 @@ export default function App() {
       setFolderList([]);
       setFileTree([]);
       return false;
+    }
+  };
+
+  // --- Move Handler ---
+  const handleMove = async (source: string, destination: string) => {
+    try {
+      const result = await realFileService.moveItem(source, destination);
+      // 如果移动的是当前打开的文件，更新currentFilename
+      if (currentFilename === source) {
+        setCurrentFilename(result.new_path);
+      } else if (currentFilename?.startsWith(source + '/')) {
+        // 如果移动的是包含当前文件的文件夹
+        const newPath = currentFilename.replace(source, result.new_path);
+        setCurrentFilename(newPath);
+      }
+      await refreshFileSystem();
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail || e?.message || '移动失败';
+      alert(`移动失败: ${detail}`);
+    }
+  };
+
+  // --- Rename Handlers ---
+  const handleRenameStart = (node: FileNode) => {
+    setRenameNode(node);
+    setRenameValue(node.name);
+  };
+
+  const handleRenameConfirm = async () => {
+    if (!renameNode || !renameValue.trim()) {
+      setRenameNode(null);
+      return;
+    }
+    
+    const newName = renameValue.trim();
+    if (newName === renameNode.name) {
+      setRenameNode(null);
+      return;
+    }
+
+    try {
+      const result = await realFileService.renameItem(renameNode.path, newName);
+      // 如果重命名的是当前打开的文件，更新currentFilename
+      if (currentFilename === renameNode.path) {
+        setCurrentFilename(result.new_path);
+      } else if (currentFilename?.startsWith(renameNode.path + '/')) {
+        // 如果重命名的是包含当前文件的文件夹
+        const newPath = currentFilename.replace(renameNode.path, result.new_path);
+        setCurrentFilename(newPath);
+      }
+      await refreshFileSystem();
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail || e?.message || '重命名失败';
+      alert(`重命名失败: ${detail}`);
+    } finally {
+      setRenameNode(null);
     }
   };
 
@@ -585,6 +794,175 @@ export default function App() {
       // 提供清晰的错误提示
       alert(`Failed to create folder: ${e.message}`);
       console.error(e);
+    }
+  };
+
+  // --- 图片上传 ---
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  
+  // 用 ref 跟踪最新的 editorContent，避免闭包问题
+  const editorContentRef = useRef(editorContent);
+  useEffect(() => {
+    editorContentRef.current = editorContent;
+  }, [editorContent]);
+
+  // 获取当前md文件对应的图片存储文件夹路径
+  const getImageFolderForCurrentFile = (): string => {
+    if (!currentFilename) return '';
+    // 例如: posts/hello.md -> posts/hello
+    const withoutExt = currentFilename.replace(/\.md$/i, '');
+    return withoutExt;
+  };
+
+  // 处理编辑器中粘贴/拖拽图片的上传
+  const handleEditorImageUpload = async (files: File[], cursorPosition: number) => {
+    if (!currentFilename) {
+      alert('请先打开一个Markdown文件');
+      return;
+    }
+
+    const imageFiles = files.filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+
+    setIsUploading(true);
+    const targetFolder = getImageFolderForCurrentFile();
+    const folderName = currentFilename.replace(/\.md$/i, '').split('/').pop() || '';
+    
+    try {
+      // 收集所有要插入的markdown文本
+      const results: string[] = [];
+      
+      for (const file of imageFiles) {
+        // 为粘贴的截图生成文件名
+        let fileName = file.name;
+        if (!fileName || fileName === 'image.png' || fileName.startsWith('blob')) {
+          const timestamp = new Date().toISOString().replace(/[-:T]/g, '').substring(0, 14);
+          const random = Math.random().toString(36).substring(2, 6);
+          fileName = `image-${timestamp}-${random}.png`;
+        }
+        
+        // 创建带有正确文件名的新File对象
+        const renamedFile = new File([file], fileName, { type: file.type });
+        
+        try {
+          const result = await realFileService.uploadImage(renamedFile, targetFolder);
+          const relativePath = `./${folderName}/${result.filename}`;
+          results.push(`![${result.filename}](${relativePath})`);
+        } catch (e: any) {
+          console.error('图片上传失败:', e);
+          results.push(`<!-- 上传失败: ${fileName} -->`);
+        }
+      }
+      
+      // 一次性在光标位置插入所有结果
+      if (results.length > 0 && editorRef.current) {
+        const currentContent = editorContentRef.current;
+        const before = currentContent.substring(0, cursorPosition);
+        const after = currentContent.substring(cursorPosition);
+        const insertText = '\n' + results.join('\n') + '\n';
+        const newContent = before + insertText + after;
+        
+        handleEditorChange(newContent);
+        
+        // 设置光标位置
+        setTimeout(() => {
+          if (editorRef.current) {
+            const newPos = cursorPosition + insertText.length;
+            editorRef.current.selectionStart = editorRef.current.selectionEnd = newPos;
+            editorRef.current.focus();
+          }
+        }, 0);
+      }
+      
+      // 刷新文件系统
+      await refreshFileSystem();
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // 处理粘贴事件
+  const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      e.preventDefault(); // 阻止默认粘贴行为
+      const cursorPos = editorRef.current?.selectionStart || 0;
+      await handleEditorImageUpload(imageFiles, cursorPos);
+    }
+    // 如果没有图片，让默认的文本粘贴继续
+  }, [currentFilename]);
+
+  // 处理拖放事件
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLTextAreaElement>) => {
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      const cursorPos = editorRef.current?.selectionStart || 0;
+      await handleEditorImageUpload(imageFiles, cursorPos);
+    }
+  }, [currentFilename]);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    // 检查是否有图片文件
+    const hasImage = Array.from(e.dataTransfer?.types || []).includes('Files');
+    if (hasImage) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }, []);
+
+  const handleImportImage = () => {
+    imageInputRef.current?.click();
+  };
+
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    const targetFolder = currentFolder || '';
+    
+    try {
+      const uploadPromises = Array.from(files).map(file => 
+        realFileService.uploadImage(file, targetFolder)
+      );
+      
+      const results = await Promise.allSettled(uploadPromises);
+      
+      // 统计成功和失败数量
+      const succeeded = results.filter(r => r.status === 'fulfilled').length;
+      const failed = results.filter(r => r.status === 'rejected').length;
+      
+      if (failed > 0) {
+        alert(`上传完成: ${succeeded} 成功, ${failed} 失败`);
+      }
+      
+      // 刷新文件系统以显示新上传的图片
+      await refreshFileSystem();
+    } catch (e: any) {
+      alert(`上传失败: ${e?.message || e}`);
+    } finally {
+      setIsUploading(false);
+      // 清空input以便再次选择相同文件
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+      }
     }
   };
 
@@ -813,6 +1191,14 @@ export default function App() {
               <button onClick={handleCreateFile} className="p-1.5 hover:bg-blue-500/20 rounded-md text-slate-400 hover:text-blue-300 hover:shadow-[0_0_8px_rgba(59,130,246,0.3)] transition-all duration-200" title="新建文件">
                 <FilePlusIcon />
               </button>
+              <button 
+                onClick={handleImportImage} 
+                disabled={isUploading}
+                className={`p-1.5 hover:bg-purple-500/20 rounded-md text-slate-400 hover:text-purple-300 hover:shadow-[0_0_8px_rgba(168,85,247,0.3)] transition-all duration-200 ${isUploading ? 'opacity-50 cursor-wait' : ''}`} 
+                title={isUploading ? '上传中...' : '导入图片'}
+              >
+                <ImagePlusIcon />
+              </button>
               <button onClick={refreshFileSystem} className="p-1.5 hover:bg-green-500/20 rounded-md text-slate-400 hover:text-green-300 hover:shadow-[0_0_8px_rgba(34,197,94,0.3)] transition-all duration-200" title="刷新">
                 <RefreshIcon />
               </button>
@@ -820,6 +1206,15 @@ export default function App() {
                 <TrashIcon />
               </button>
             </div>
+            {/* 隐藏的图片上传input */}
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageFileChange}
+              className="hidden"
+            />
           </div>
           
           {/* 当前文件夹指示器 - 玻璃态 */}
@@ -848,8 +1243,37 @@ export default function App() {
                 onFileClick={handleFileClick}
                 onDelete={handleDelete}
                 onFolderClick={(path) => setCurrentFolder(path)}
+                onMove={handleMove}
+                onRename={handleRenameStart}
+                draggedItem={draggedItem}
+                setDraggedItem={setDraggedItem}
+                dropTarget={dropTarget}
+                setDropTarget={setDropTarget}
                />
              ))}
+
+             {/* Rename Modal */}
+             <ConfirmModal
+               open={!!renameNode}
+               title="重命名"
+               message={renameNode ? `将 "${renameNode.name}" 重命名为:` : undefined}
+               confirmText="确定"
+               cancelText="取消"
+               onCancel={() => setRenameNode(null)}
+               onConfirm={handleRenameConfirm}
+             >
+               <input
+                 type="text"
+                 value={renameValue}
+                 onChange={(e) => setRenameValue(e.target.value)}
+                 onKeyDown={(e) => {
+                   if (e.key === 'Enter') handleRenameConfirm();
+                   if (e.key === 'Escape') setRenameNode(null);
+                 }}
+                 className="w-full mt-2 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white outline-none focus:border-blue-500"
+                 autoFocus
+               />
+             </ConfirmModal>
 
              {/* Confirmation modal for destructive actions */}
              <ConfirmModal
@@ -962,7 +1386,56 @@ export default function App() {
                     style={{ width: `${splitRatio * 100}%` }}
                   >
                      <div className="p-8 prose prose-invert prose-sm max-w-none">
-                       <ReactMarkdown>{editorContent}</ReactMarkdown>
+                       <ReactMarkdown
+                         components={{
+                           img: ({ src, alt, ...props }) => {
+                             // 处理图片路径
+                             let imageSrc = src || '';
+                             
+                             // 如果是相对路径（不是http/https/data开头）
+                             if (imageSrc && !imageSrc.startsWith('http://') && !imageSrc.startsWith('https://') && !imageSrc.startsWith('data:')) {
+                               // 获取当前文件的目录
+                               let currentDir = '';
+                               if (currentFilename) {
+                                 const lastSlash = currentFilename.lastIndexOf('/');
+                                 currentDir = lastSlash > 0 ? currentFilename.substring(0, lastSlash) : '';
+                               }
+                               
+                               // 解析相对路径
+                               let resolvedPath = imageSrc;
+                               if (imageSrc.startsWith('./')) {
+                                 // ./hello/image.png -> hello/image.png (相对于当前目录)
+                                 const relativePart = imageSrc.substring(2);
+                                 resolvedPath = currentDir ? `${currentDir}/${relativePart}` : relativePart;
+                               } else if (imageSrc.startsWith('../')) {
+                                 // 处理 ../ 的情况
+                                 const parts = currentDir ? currentDir.split('/') : [];
+                                 let imgParts = imageSrc.split('/');
+                                 while (imgParts[0] === '..' && parts.length > 0) {
+                                   parts.pop();
+                                   imgParts.shift();
+                                 }
+                                 // 移除剩余的 ..
+                                 imgParts = imgParts.filter(p => p !== '..');
+                                 resolvedPath = [...parts, ...imgParts].join('/');
+                               } else if (!imageSrc.startsWith('/')) {
+                                 // 普通相对路径 (不以 ./ 或 ../ 开头)
+                                 resolvedPath = currentDir ? `${currentDir}/${imageSrc}` : imageSrc;
+                               }
+                               
+                               // 使用后端API提供图片 - 需要正确处理路径编码
+                               // 先按 / 分割，对每个部分单独编码，再用 / 连接
+                               const pathParts = resolvedPath.split('/');
+                               const encodedPath = pathParts.map(part => encodeURIComponent(part)).join('/');
+                               imageSrc = `${API_BASE_URL}/api/assets/${encodedPath}`;
+                             }
+                             
+                             return <img src={imageSrc} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
+                           }
+                         }}
+                       >
+                         {editorContent}
+                       </ReactMarkdown>
                      </div>
                   </div>
                   
@@ -978,10 +1451,21 @@ export default function App() {
                   ref={editorRef}
                   value={editorContent}
                   onChange={(e) => handleEditorChange(e.target.value)}
-                  className="w-full h-full p-6 bg-[#0d1117] text-gray-300 font-mono text-sm resize-none outline-none focus:ring-0 leading-relaxed"
+                  onPaste={handlePaste}
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  className={`w-full h-full p-6 bg-[#0d1117] text-gray-300 font-mono text-sm resize-none outline-none focus:ring-0 leading-relaxed ${isUploading ? 'opacity-70' : ''}`}
                   spellCheck={false}
-                  placeholder="Select a file to start writing..."
+                  placeholder={currentFilename ? "开始写作... (可直接粘贴或拖入图片)" : "Select a file to start writing..."}
                 />
+                {isUploading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 pointer-events-none">
+                    <div className="bg-gray-800 px-4 py-2 rounded-lg text-blue-300 flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+                      上传图片中...
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
