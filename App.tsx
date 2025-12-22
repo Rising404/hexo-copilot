@@ -751,6 +751,12 @@ export default function App() {
     // 如果用户未提供路径则直接返回
     if (!filename || filename.trim() === '') return;
 
+    // 检查文件名称中是否包含空格
+    if (filename.includes(' ')) {
+      alert('⚠️ 文件名不能包含空格\n\n请使用下划线或连字符来替代空格，例如：\n- my_post.md\n- my-post.md');
+      return;
+    }
+
     // 构建完整路径：currentFolder + 用户输入
     const fullPath = currentFolder ? `${currentFolder}/${filename}` : filename;
 
@@ -789,6 +795,12 @@ export default function App() {
     const folderPath = window.prompt(prompt);
     // 如果用户未提供路径则直接返回
     if (!folderPath || folderPath.trim() === '') return;
+
+    // 检查文件夹名称中是否包含空格
+    if (folderPath.includes(' ')) {
+      alert('⚠️ 文件夹名称不能包含空格\n\n请使用下划线或连字符来替代空格，例如：\n- my_folder\n- my-folder');
+      return;
+    }
 
     // 构建完整路径
     const fullPath = currentFolder ? `${currentFolder}/${folderPath}` : folderPath;
@@ -837,6 +849,20 @@ export default function App() {
     const folderName = currentFilename.replace(/\.md$/i, '').split('/').pop() || '';
     
     try {
+      // 检查是否有文件名包含空格
+      const filesWithSpaces = imageFiles.filter(f => {
+        let fileName = f.name;
+        if (!fileName || fileName === 'image.png' || fileName.startsWith('blob')) {
+          return false; // 自动生成的文件名不会有空格
+        }
+        return fileName.includes(' ');
+      });
+      
+      if (filesWithSpaces.length > 0) {
+        const fileNames = filesWithSpaces.map(f => f.name).join('、');
+        alert(`⚠️ 文件名包含空格\n\n文件名: ${fileNames}\n\n编辑区显示可能异常，已自动将空格替换为下划线。建议避免在文件名中使用空格。`);
+      }
+      
       // 收集所有要插入的markdown文本
       const results: string[] = [];
       
@@ -847,6 +873,9 @@ export default function App() {
           const timestamp = new Date().toISOString().replace(/[-:T]/g, '').substring(0, 14);
           const random = Math.random().toString(36).substring(2, 6);
           fileName = `image-${timestamp}-${random}.png`;
+        } else {
+          // 将文件名中的空格替换为下划线
+          fileName = fileName.replace(/\s+/g, '_');
         }
         
         // 创建带有正确文件名的新File对象
@@ -854,7 +883,8 @@ export default function App() {
         
         try {
           const result = await realFileService.uploadImage(renamedFile, targetFolder);
-          const relativePath = `./${folderName}/${result.filename}`;
+          // 使用简短路径 ./image.png，Hexo能识别，本地预览时会自动转换
+          const relativePath = `./${result.filename}`;
           results.push(`![${result.filename}](${relativePath})`);
         } catch (e: any) {
           console.error('图片上传失败:', e);
@@ -923,7 +953,7 @@ export default function App() {
       const cursorPos = editorRef.current?.selectionStart || 0;
       await handleEditorImageUpload(imageFiles, cursorPos);
     }
-  }, [currentFilename]);
+  }, [handleEditorImageUpload]);
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
     // 检查是否有图片文件
@@ -1410,19 +1440,30 @@ export default function App() {
                              
                              // 如果是相对路径（不是http/https/data开头）
                              if (imageSrc && !imageSrc.startsWith('http://') && !imageSrc.startsWith('https://') && !imageSrc.startsWith('data:')) {
-                               // 获取当前文件的目录
+                               // 获取当前文件的目录和文件名（不含扩展名）
                                let currentDir = '';
+                               let currentFileBaseName = '';
                                if (currentFilename) {
                                  const lastSlash = currentFilename.lastIndexOf('/');
                                  currentDir = lastSlash > 0 ? currentFilename.substring(0, lastSlash) : '';
+                                 // 获取文件名（不含扩展名），用于查找图片文件夹
+                                 const fileName = lastSlash > 0 ? currentFilename.substring(lastSlash + 1) : currentFilename;
+                                 currentFileBaseName = fileName.replace(/\.md$/i, '');
                                }
                                
                                // 解析相对路径
                                let resolvedPath = imageSrc;
                                if (imageSrc.startsWith('./')) {
-                                 // ./hello/image.png -> hello/image.png (相对于当前目录)
                                  const relativePart = imageSrc.substring(2);
-                                 resolvedPath = currentDir ? `${currentDir}/${relativePart}` : relativePart;
+                                 // 检查是否只是图片文件名（不含目录）
+                                 if (relativePart && !relativePart.includes('/')) {
+                                   // ./image.png -> 转换为 ./笔记同名文件夹/image.png
+                                   const folderPath = currentDir ? `${currentDir}/${currentFileBaseName}` : currentFileBaseName;
+                                   resolvedPath = `${folderPath}/${relativePart}`;
+                                 } else {
+                                   // ./hello/image.png -> hello/image.png (相对于当前目录)
+                                   resolvedPath = currentDir ? `${currentDir}/${relativePart}` : relativePart;
+                                 }
                                } else if (imageSrc.startsWith('../')) {
                                  // 处理 ../ 的情况
                                  const parts = currentDir ? currentDir.split('/') : [];

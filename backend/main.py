@@ -244,6 +244,9 @@ async def upload_image(
         raise HTTPException(status_code=400, detail="文件名为空")
     
     filename = file.filename.strip()
+    # 将文件名中的空格替换为下划线
+    filename = filename.replace(' ', '_')
+    
     ext = os.path.splitext(filename)[1].lower()
     if ext not in IMAGE_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"不支持的图片格式: {ext}，支持: {', '.join(IMAGE_EXTENSIONS)}")
