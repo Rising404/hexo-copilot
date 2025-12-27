@@ -47,6 +47,8 @@
 
 ### ✍️ Markdown 编辑器
 - **分屏视图**：支持编辑/分屏模式，实时预览 Markdown 渲染效果
+- **数学公式**：内置 KaTeX，支持行内/块级 LaTeX 公式（remark-math + rehype-katex）
+- **同步滚动开关**：预览/编辑器可一键切换同步或独立滚动，支持跨区选中高亮
 - **图片预览**：自动解析相对路径图片，正确显示本地图片
 - **语法高亮**：代码块自动语法高亮显示
 - **自动保存提示**：编辑后可一键保存文件
@@ -108,6 +110,10 @@
    - 桌面会出现 "Hexo Copilot" 快捷方式
    - 以后双击即可一键启动
 
+4. **（必做）创建配置文件：**
+   - 在项目根目录创建 `config.json`（不会被提交到 Git）
+   - 参考下方“手动配置 config.json”填写你的工作目录、模型地址与密钥
+
 ### 手动安装
 
 1. **安装前端依赖：**
@@ -138,6 +144,50 @@
 该命令会同时启动：
 - **FastAPI 后端服务**：`http://127.0.0.1:8000`
 - **Vite 前端服务**：`http://localhost:3000`
+
+### 手动配置 `config.json`
+
+> ⚠️ 请勿将密钥提交到仓库。`config.json` 已加入 `.gitignore`，仅保留在本地。
+
+在项目根目录创建 `config.json`，格式示例：
+
+```json
+{
+   "hexo_path": "D:\\MyBlog\\blog\\source", // 你的 Hexo 文章目录
+   "llm_provider": "gemini",                    // 默认模型提供方：openai/claude/gemini/qwen/deepseek
+   "providers": {
+      "openai": {
+         "api_key": "YOUR_OPENAI_KEY",
+         "base_url": "https://api.openai.com/v1",
+         "model": "gpt-4o-mini"
+      },
+      "claude": {
+         "api_key": "YOUR_CLAUDE_KEY",
+         "base_url": "https://api.anthropic.com",
+         "model": "claude-3-5-sonnet-20241022"
+      },
+      "gemini": {
+         "api_key": "YOUR_GEMINI_KEY",
+         "base_url": "https://xiaoai.plus/v1/",
+         "model": "gemini-3-flash-preview-thinking"
+      },
+      "qwen": {
+         "api_key": "YOUR_QWEN_KEY",
+         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+         "model": "qwen-plus"
+      },
+      "deepseek": {
+         "api_key": "YOUR_DEEPSEEK_KEY",
+         "base_url": "https://api.deepseek.com/v1",
+         "model": "deepseek-chat"
+      }
+   }
+}
+```
+
+小贴士：
+- 国内代理可将 `base_url` 改成你的代理地址，通常兼容 OpenAI 格式。
+- `llm_provider` 决定默认使用哪家模型，随时可在前端切换。
 
 ---
 

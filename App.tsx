@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 // import { mockFileService } from './services/mockFileService'; // Using realFileService instead for real filesystem operations
 import { realFileService, AppConfig, LLMProvider } from './services/realFileService';
 import { createChatSession, sendMessage, ChatSession, getDefaultConfig, PROVIDER_DEFAULTS } from './services/llmService';
@@ -419,6 +422,10 @@ export default function App() {
   
   // View Modes: 'edit' | 'split'
   const [viewMode, setViewMode] = useState<'edit' | 'split'>('edit');
+  // Scroll sync toggle
+  const [isScrollSyncEnabled, setIsScrollSyncEnabled] = useState(true);
+  // Cross-pane highlight state
+  const [crossHighlight, setCrossHighlight] = useState<{ text: string; source: 'editor' | 'preview' | null }>({ text: '', source: null });
 
   // --- State: AI Chat ---
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -431,6 +438,8 @@ export default function App() {
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const centerPanelRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const scrollSyncSourceRef = useRef<'editor' | 'preview' | null>(null);
 
   // --- Initialization ---
   useEffect(() => {
@@ -964,6 +973,139 @@ export default function App() {
     }
   }, []);
 
+  // --- Cross-pane highlight & scroll sync helpers ---
+  const normalizeSelectionText = useCallback((text: string) => text.replace(/\s+/g, ' ').trim(), []);
+
+  const clearPreviewHighlights = useCallback(() => {
+    if (!previewRef.current) return;
+    const highlighted = previewRef.current.querySelectorAll('span.cross-highlight');
+    highlighted.forEach(span => {
+      const parent = span.parentNode;
+      if (!parent) return;
+      parent.replaceChild(document.createTextNode(span.textContent || ''), span);
+      parent.normalize();
+    });
+  }, []);
+
+  const applyPreviewHighlight = useCallback((text: string) => {
+    clearPreviewHighlights();
+    if (!previewRef.current) return;
+    const targetText = normalizeSelectionText(text);
+    if (!targetText) return;
+
+    const walker = document.createTreeWalker(previewRef.current, NodeFilter.SHOW_TEXT, null);
+    const needle = targetText.toLowerCase();
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      const haystack = node.data.toLowerCase();
+      const idx = haystack.indexOf(needle);
+      if (idx !== -1) {
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + targetText.length);
+        const span = document.createElement('span');
+        span.className = 'cross-highlight bg-amber-500/60 text-gray-900 rounded px-0.5 shadow-sm';
+        range.surroundContents(span);
+        return;
+      }
+    }
+  }, [clearPreviewHighlights, normalizeSelectionText]);
+
+  const highlightEditorFromPreview = useCallback((text: string) => {
+    const editor = editorRef.current;
+    const targetText = normalizeSelectionText(text);
+    if (!editor || !targetText) return;
+    const lowerContent = editor.value.toLowerCase();
+    const idx = lowerContent.indexOf(targetText.toLowerCase());
+    if (idx === -1) return;
+    try {
+      editor.focus({ preventScroll: true } as any);
+    } catch {
+      // ignore focus errors in older browsers
+    }
+    editor.setSelectionRange(idx, idx + targetText.length);
+
+    // Keep viewport roughly aligned when同步滚动开启
+    if (isScrollSyncEnabled && viewMode === 'split') {
+      const editorScrollable = Math.max(editor.scrollHeight - editor.clientHeight, 1);
+      const approxRatio = idx / Math.max(editor.value.length, 1);
+      editor.scrollTop = approxRatio * editorScrollable;
+    }
+  }, [isScrollSyncEnabled, normalizeSelectionText, viewMode]);
+
+  const handleEditorSelection = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const { selectionStart, selectionEnd, value } = editor;
+    if (selectionEnd <= selectionStart) {
+      if (crossHighlight.text) setCrossHighlight({ text: '', source: null });
+      return;
+    }
+    const selected = normalizeSelectionText(value.substring(selectionStart, selectionEnd));
+    if (selected.length < 2) {
+      if (crossHighlight.text) setCrossHighlight({ text: '', source: null });
+      return;
+    }
+    setCrossHighlight({ text: selected, source: 'editor' });
+  }, [crossHighlight.text, normalizeSelectionText]);
+
+  const handlePreviewSelection = useCallback(() => {
+    if (!previewRef.current) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      if (crossHighlight.text) setCrossHighlight({ text: '', source: null });
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!previewRef.current.contains(range.commonAncestorContainer)) return;
+    const selected = normalizeSelectionText(selection.toString());
+    if (selected.length < 2) {
+      if (crossHighlight.text) setCrossHighlight({ text: '', source: null });
+      return;
+    }
+    setCrossHighlight({ text: selected, source: 'preview' });
+  }, [crossHighlight.text, normalizeSelectionText]);
+
+  const handleEditorScroll = useCallback(() => {
+    if (!isScrollSyncEnabled || viewMode !== 'split') return;
+    if (scrollSyncSourceRef.current === 'preview') return;
+    const editor = editorRef.current;
+    const preview = previewRef.current;
+    if (!editor || !preview) return;
+    scrollSyncSourceRef.current = 'editor';
+    const ratio = editor.scrollTop / Math.max(editor.scrollHeight - editor.clientHeight, 1);
+    preview.scrollTop = ratio * Math.max(preview.scrollHeight - preview.clientHeight, 1);
+    window.requestAnimationFrame(() => { scrollSyncSourceRef.current = null; });
+  }, [isScrollSyncEnabled, viewMode]);
+
+  const handlePreviewScroll = useCallback(() => {
+    if (!isScrollSyncEnabled || viewMode !== 'split') return;
+    if (scrollSyncSourceRef.current === 'editor') return;
+    const editor = editorRef.current;
+    const preview = previewRef.current;
+    if (!editor || !preview) return;
+    scrollSyncSourceRef.current = 'preview';
+    const ratio = preview.scrollTop / Math.max(preview.scrollHeight - preview.clientHeight, 1);
+    editor.scrollTop = ratio * Math.max(editor.scrollHeight - editor.clientHeight, 1);
+    window.requestAnimationFrame(() => { scrollSyncSourceRef.current = null; });
+  }, [isScrollSyncEnabled, viewMode]);
+
+  // 应用跨区高亮
+  useEffect(() => {
+    if (viewMode !== 'split') {
+      clearPreviewHighlights();
+      return;
+    }
+    if (!crossHighlight.text) {
+      clearPreviewHighlights();
+      return;
+    }
+    applyPreviewHighlight(crossHighlight.text);
+    if (crossHighlight.source === 'preview') {
+      highlightEditorFromPreview(crossHighlight.text);
+    }
+  }, [applyPreviewHighlight, clearPreviewHighlights, crossHighlight, highlightEditorFromPreview, viewMode]);
+
   const handleImportImage = () => {
     imageInputRef.current?.click();
   };
@@ -1388,6 +1530,15 @@ export default function App() {
                </button>
             </div>
 
+            <button
+              onClick={() => setIsScrollSyncEnabled(prev => !prev)}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1 mr-2
+                ${isScrollSyncEnabled ? 'bg-emerald-700 text-white shadow-sm' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+              title="切换预览/编辑同步滚动"
+            >
+              <EyeIcon /> {isScrollSyncEnabled ? '同步开' : '同步关'}
+            </button>
+
             <button 
               onClick={handleSave}
               disabled={!currentFilename || saveStatus === 'saving'}
@@ -1428,11 +1579,18 @@ export default function App() {
               {viewMode === 'split' && (
                 <>
                   <div 
+                    ref={previewRef}
                     className="h-full bg-[#0d1117] overflow-y-auto border-r border-gray-800"
                     style={{ width: `${splitRatio * 100}%` }}
+                    onScroll={handlePreviewScroll}
+                    onMouseUp={handlePreviewSelection}
+                    onKeyUp={handlePreviewSelection}
+                    onTouchEnd={handlePreviewSelection}
                   >
                      <div className="p-8 prose prose-invert prose-sm max-w-none">
                        <ReactMarkdown
+                         remarkPlugins={[remarkMath]}
+                         rehypePlugins={[rehypeKatex]}
                          components={{
                            img: ({ src, alt, ...props }) => {
                              // 处理图片路径
@@ -1511,6 +1669,10 @@ export default function App() {
                   onPaste={handlePaste}
                   onDrop={handleDrop}
                   onDragOver={handleDragOver}
+                  onScroll={handleEditorScroll}
+                  onSelect={handleEditorSelection}
+                  onKeyUp={handleEditorSelection}
+                  onMouseUp={handleEditorSelection}
                   className={`w-full h-full p-6 bg-[#0d1117] text-gray-300 font-mono text-sm resize-none outline-none focus:ring-0 leading-relaxed ${isUploading ? 'opacity-70' : ''}`}
                   spellCheck={false}
                   placeholder={currentFilename ? "开始写作... (可直接粘贴或拖入图片)" : "Select a file to start writing..."}
@@ -1613,7 +1775,12 @@ export default function App() {
                 `}
               >
                 <div className="prose prose-invert prose-sm max-w-none break-words">
-                  <ReactMarkdown>{msg.text}</ReactMarkdown>
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                  >
+                    {msg.text}
+                  </ReactMarkdown>
                 </div>
               </div>
             </div>
