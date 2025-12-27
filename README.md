@@ -11,9 +11,9 @@
   <img src="https://img.shields.io/badge/Python-3.9+-blue?logo=python" alt="Python">
 </p>
 
-**Hexo-Copilot** 是一款运行在你本地电脑上的全栈 Web 应用，为撰写和管理你的 Hexo 博客文章提供无缝的、IDE 般的体验。它集成了现代化的文件浏览器、功能丰富的 Markdown 编辑器，以及一个支持多模型的、具备上下文感知能力的强大 AI 助手。
+**Hexo-Copilot** 是一款运行在你本地电脑上的全栈 Web 应用，为撰写和管理你的 Hexo 博客文章提供无缝的、IDE 般的体验。它集成了现代化的文件浏览器、功能丰富的 Markdown 编辑器，以及一个支持多模型的、具备上下文感知能力的 AI 助手。
 
-告别在编辑器、文件管理器和 AI 聊天工具之间的频繁切换。Hexo-Copilot 将你需要的一切都整合进了一个优雅的界面中。
+告别在编辑器、文件管理器和 AI 聊天工具之间的频繁切换。Hexo-Copilot 将你需要的一切都整合进了一个界面中。
 
 ---
 
