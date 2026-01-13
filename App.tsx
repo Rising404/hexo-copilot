@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -15,6 +15,16 @@ import {
 import ConfirmModal from './components/ConfirmModal';
 import TrashView from './components/TrashView';
 import QuickSettings from './components/QuickSettings';
+import ErrorBoundary from './components/ErrorBoundary';
+
+// 防抖工具函数
+function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout | null = null;
+  return function(...args: Parameters<T>) {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
 
 // API基础URL用于图片
 const API_BASE_URL = 'http://127.0.0.1:8000';
@@ -115,6 +125,135 @@ const buildFileTree = (files: string[], folders: string[]): FileNode[] => {
   return root;
 };
 
+// --- Optimized Markdown Preview Component ---
+interface MarkdownPreviewProps {
+  content: string;
+  currentFilename: string | null;
+}
+
+const MarkdownPreview = React.memo(({ content, currentFilename }: MarkdownPreviewProps) => {
+  const [renderError, setRenderError] = React.useState<string | null>(null);
+
+  // 重置错误状态当内容改变时
+  React.useEffect(() => {
+    setRenderError(null);
+  }, [content]);
+
+  if (renderError) {
+    return (
+      <div className="p-6 space-y-4">
+        <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 text-red-300">
+          <div className="font-bold mb-2">⚠️ 预览渲染失败</div>
+          <div className="text-sm opacity-90">{renderError}</div>
+          <button 
+            onClick={() => setRenderError(null)}
+            className="mt-3 px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-sm"
+          >
+            重新尝试
+          </button>
+        </div>
+        <div className="text-gray-400 text-sm font-mono whitespace-pre-wrap">{content}</div>
+      </div>
+    );
+  }
+
+  try {
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{
+          img: ({ src, alt, ...props }) => {
+            // 处理图片路径
+            let imageSrc = src || '';
+          
+          // 如果是相对路径（不是http/https/data开头）
+          if (imageSrc && !imageSrc.startsWith('http://') && !imageSrc.startsWith('https://') && !imageSrc.startsWith('data:')) {
+            // 获取当前文件的目录和文件名（不含扩展名）
+            let currentDir = '';
+            let currentFileBaseName = '';
+            if (currentFilename) {
+              const lastSlash = currentFilename.lastIndexOf('/');
+              currentDir = lastSlash > 0 ? currentFilename.substring(0, lastSlash) : '';
+              // 获取文件名（不含扩展名），用于查找图片文件夹
+              const fileName = lastSlash > 0 ? currentFilename.substring(lastSlash + 1) : currentFilename;
+              currentFileBaseName = fileName.replace(/\.md$/i, '');
+            }
+            
+            // 解析相对路径
+            let resolvedPath = imageSrc;
+            if (imageSrc.startsWith('./')) {
+              const relativePart = imageSrc.substring(2);
+              // 检查是否只是图片文件名（不含目录）
+              if (relativePart && !relativePart.includes('/')) {
+                // ./image.png -> 转换为 ./笔记同名文件夹/image.png
+                const folderPath = currentDir ? `${currentDir}/${currentFileBaseName}` : currentFileBaseName;
+                resolvedPath = `${folderPath}/${relativePart}`;
+              } else {
+                // ./hello/image.png -> hello/image.png (相对于当前目录)
+                resolvedPath = currentDir ? `${currentDir}/${relativePart}` : relativePart;
+              }
+            } else if (imageSrc.startsWith('../')) {
+              // 处理 ../ 的情况
+              const parts = currentDir ? currentDir.split('/') : [];
+              let imgParts = imageSrc.split('/');
+              while (imgParts[0] === '..' && parts.length > 0) {
+                parts.pop();
+                imgParts.shift();
+              }
+              // 移除剩余的 ..
+              imgParts = imgParts.filter(p => p !== '..');
+              resolvedPath = [...parts, ...imgParts].join('/');
+            } else if (!imageSrc.startsWith('/')) {
+              // 普通相对路径 (不以 ./ 或 ../ 开头)
+              resolvedPath = currentDir ? `${currentDir}/${imageSrc}` : imageSrc;
+            }
+            
+            // 使用后端API提供图片 - 需要正确处理路径编码
+            // 先按 / 分割，对每个部分单独编码，再用 / 连接
+            const pathParts = resolvedPath.split('/');
+            const encodedPath = pathParts.map(part => encodeURIComponent(part)).join('/');
+            imageSrc = `${API_BASE_URL}/api/assets/${encodedPath}`;
+          }
+          
+          return (
+            <img 
+              src={imageSrc} 
+              alt={alt} 
+              {...props} 
+              style={{ maxWidth: '100%' }} 
+              onError={(e) => {
+                // 图片加载失败时显示替代文本
+                e.currentTarget.style.display = 'none';
+                const parent = e.currentTarget.parentElement;
+                if (parent && !parent.querySelector('.img-error')) {
+                  const errorDiv = document.createElement('div');
+                  errorDiv.className = 'img-error p-2 bg-yellow-900/20 border border-yellow-500/50 rounded text-yellow-300 text-sm';
+                  errorDiv.textContent = `⚠️ 图片加载失败: ${alt || src}`;
+                  parent.appendChild(errorDiv);
+                }
+              }}
+            />
+          );
+        }
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+    );
+  } catch (error) {
+    // 捕获渲染错误
+    setRenderError(error instanceof Error ? error.message : '未知渲染错误');
+    return null;
+  }
+}, (prevProps, nextProps) => {
+  // 只有当content或currentFilename改变时才重新渲染
+  return prevProps.content === nextProps.content && 
+         prevProps.currentFilename === nextProps.currentFilename;
+});
+
+MarkdownPreview.displayName = 'MarkdownPreview';
+
 // --- Resizer Components ---
 const ResizerVertical = ({ onMouseDown, className }: { onMouseDown: (e: React.MouseEvent) => void, className?: string }) => (
   <div
@@ -160,7 +299,8 @@ const FileTreeNode = ({
   dropTarget?: string | null;
   setDropTarget?: (path: string | null) => void;
 }) => {
-  const [isOpen, setIsOpen] = useState(true);
+  // 默认折叠文件夹，避免初始加载时全部展开
+  const [isOpen, setIsOpen] = useState(false);
   
   // 判断是否是 .trash 文件夹
   const isTrashFolder = node.name === '.trash' && node.type === 'folder';
@@ -396,6 +536,7 @@ export default function App() {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [currentFilename, setCurrentFilename] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState<string>("");
+  const [previewContent, setPreviewContent] = useState<string>(""); // 用于防抖的预览内容
   const [isLoadingFile, setIsLoadingFile] = useState(false);
 
   // --- State: Drag & Drop ---
@@ -411,6 +552,10 @@ export default function App() {
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving'>('saved');
   const lastContentRef = useRef<string>(""); // 用于跟踪上一次内容，避免重复记录
+  
+  // 用于防抖更新的refs
+  const previewUpdateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const undoStackTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- 新的状态管理 ---
   const [config, setConfig] = useState<AppConfig | null>(null); // 初始为null，表示正在加载
@@ -473,20 +618,46 @@ export default function App() {
   loadInitialConfig();
 }, []); // 这个effect只在组件首次加载时运行一次
 
-  // --- Undo/Redo Handlers ---
+  // 初始化时同步预览内容
+  useEffect(() => {
+    setPreviewContent(editorContent);
+  }, [currentFilename]); // 当文件改变时同步
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (previewUpdateTimerRef.current) clearTimeout(previewUpdateTimerRef.current);
+      if (undoStackTimerRef.current) clearTimeout(undoStackTimerRef.current);
+    };
+  }, []);
   const handleEditorChange = useCallback((newContent: string) => {
-    // 记录当前内容到撤回栈（只有内容真正变化时才记录）
-    if (lastContentRef.current !== newContent) {
-      setUndoStack(prev => {
-        // 限制历史栈大小为100条
-        const newStack = [...prev, lastContentRef.current];
-        return newStack.slice(-100);
-      });
-      setRedoStack([]); // 新的编辑会清空重做栈
-      lastContentRef.current = newContent;
-    }
+    // 立即更新编辑器内容，保持输入流畅
     setEditorContent(newContent);
     setSaveStatus('unsaved');
+    
+    // 防抖更新预览内容（300ms延迟）
+    if (previewUpdateTimerRef.current) {
+      clearTimeout(previewUpdateTimerRef.current);
+    }
+    previewUpdateTimerRef.current = setTimeout(() => {
+      setPreviewContent(newContent);
+    }, 300);
+    
+    // 防抖更新撤销栈（1000ms延迟，避免每次按键都记录）
+    if (lastContentRef.current !== newContent) {
+      if (undoStackTimerRef.current) {
+        clearTimeout(undoStackTimerRef.current);
+      }
+      undoStackTimerRef.current = setTimeout(() => {
+        setUndoStack(prev => {
+          // 限制历史栈大小为100条
+          const newStack = [...prev, lastContentRef.current];
+          return newStack.slice(-100);
+        });
+        setRedoStack([]); // 新的编辑会清空重做栈
+        lastContentRef.current = newContent;
+      }, 1000);
+    }
   }, []);
 
   const handleUndo = useCallback(() => {
@@ -499,6 +670,7 @@ export default function App() {
     setRedoStack(prev => [...prev, editorContent]);
     setUndoStack(newUndoStack);
     setEditorContent(previousContent);
+    setPreviewContent(previousContent); // 同步更新预览
     lastContentRef.current = previousContent;
     setSaveStatus('unsaved');
   }, [undoStack, editorContent]);
@@ -513,6 +685,7 @@ export default function App() {
     setUndoStack(prev => [...prev, editorContent]);
     setRedoStack(newRedoStack);
     setEditorContent(nextContent);
+    setPreviewContent(nextContent); // 同步更新预览
     lastContentRef.current = nextContent;
     setSaveStatus('unsaved');
   }, [redoStack, editorContent]);
@@ -740,6 +913,7 @@ export default function App() {
       const content = await realFileService.getPostContent(filename);
       setCurrentFilename(filename);
       setEditorContent(content);
+      setPreviewContent(content); // 同步更新预览内容
       // 重置撤回/重做历史
       setUndoStack([]);
       setRedoStack([]);
@@ -1588,69 +1762,21 @@ export default function App() {
                     onTouchEnd={handlePreviewSelection}
                   >
                      <div className="p-8 prose prose-invert prose-sm max-w-none">
-                       <ReactMarkdown
-                         remarkPlugins={[remarkMath]}
-                         rehypePlugins={[rehypeKatex]}
-                         components={{
-                           img: ({ src, alt, ...props }) => {
-                             // 处理图片路径
-                             let imageSrc = src || '';
-                             
-                             // 如果是相对路径（不是http/https/data开头）
-                             if (imageSrc && !imageSrc.startsWith('http://') && !imageSrc.startsWith('https://') && !imageSrc.startsWith('data:')) {
-                               // 获取当前文件的目录和文件名（不含扩展名）
-                               let currentDir = '';
-                               let currentFileBaseName = '';
-                               if (currentFilename) {
-                                 const lastSlash = currentFilename.lastIndexOf('/');
-                                 currentDir = lastSlash > 0 ? currentFilename.substring(0, lastSlash) : '';
-                                 // 获取文件名（不含扩展名），用于查找图片文件夹
-                                 const fileName = lastSlash > 0 ? currentFilename.substring(lastSlash + 1) : currentFilename;
-                                 currentFileBaseName = fileName.replace(/\.md$/i, '');
-                               }
-                               
-                               // 解析相对路径
-                               let resolvedPath = imageSrc;
-                               if (imageSrc.startsWith('./')) {
-                                 const relativePart = imageSrc.substring(2);
-                                 // 检查是否只是图片文件名（不含目录）
-                                 if (relativePart && !relativePart.includes('/')) {
-                                   // ./image.png -> 转换为 ./笔记同名文件夹/image.png
-                                   const folderPath = currentDir ? `${currentDir}/${currentFileBaseName}` : currentFileBaseName;
-                                   resolvedPath = `${folderPath}/${relativePart}`;
-                                 } else {
-                                   // ./hello/image.png -> hello/image.png (相对于当前目录)
-                                   resolvedPath = currentDir ? `${currentDir}/${relativePart}` : relativePart;
-                                 }
-                               } else if (imageSrc.startsWith('../')) {
-                                 // 处理 ../ 的情况
-                                 const parts = currentDir ? currentDir.split('/') : [];
-                                 let imgParts = imageSrc.split('/');
-                                 while (imgParts[0] === '..' && parts.length > 0) {
-                                   parts.pop();
-                                   imgParts.shift();
-                                 }
-                                 // 移除剩余的 ..
-                                 imgParts = imgParts.filter(p => p !== '..');
-                                 resolvedPath = [...parts, ...imgParts].join('/');
-                               } else if (!imageSrc.startsWith('/')) {
-                                 // 普通相对路径 (不以 ./ 或 ../ 开头)
-                                 resolvedPath = currentDir ? `${currentDir}/${imageSrc}` : imageSrc;
-                               }
-                               
-                               // 使用后端API提供图片 - 需要正确处理路径编码
-                               // 先按 / 分割，对每个部分单独编码，再用 / 连接
-                               const pathParts = resolvedPath.split('/');
-                               const encodedPath = pathParts.map(part => encodeURIComponent(part)).join('/');
-                               imageSrc = `${API_BASE_URL}/api/assets/${encodedPath}`;
-                             }
-                             
-                             return <img src={imageSrc} alt={alt} {...props} style={{ maxWidth: '100%' }} />;
-                           }
-                         }}
+                       {/* 添加额外保护层 */}
+                       <ErrorBoundary 
+                         fallback={
+                           <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 text-red-300">
+                             <div className="font-bold mb-2">⚠️ 预览渲染失败</div>
+                             <div className="text-sm">Markdown 内容可能包含不支持的语法或错误的公式</div>
+                           </div>
+                         }
                        >
-                         {editorContent}
-                       </ReactMarkdown>
+                         {previewContent ? (
+                           <MarkdownPreview content={previewContent} currentFilename={currentFilename} />
+                         ) : (
+                           <div className="text-gray-500 text-center py-8">预览区域为空</div>
+                         )}
+                       </ErrorBoundary>
                      </div>
                   </div>
                   
